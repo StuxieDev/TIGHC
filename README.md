@@ -18,6 +18,23 @@ Repository: https://github.com/StuxieDev/TIGHC
 
 ## Quick start
 
+`profiles/` is a separate git repository ([TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles))
+checked out as a submodule, so clone with `--recurse-submodules`:
+
+```
+git clone --recurse-submodules https://github.com/StuxieDev/TIGHC.git
+```
+
+Already cloned without it? Run this once from the repo root instead:
+
+```
+git submodule update --init
+```
+
+Skipping this leaves `profiles/` empty, and since the app only seeds the
+default Minecraft profile when the whole `profiles/` folder is missing (not
+when it's just empty), you'll end up with no profiles and no auto-seed.
+
 ```
 python gui.py
 ```
@@ -44,8 +61,8 @@ devices.json                      # remembers a nickname for each connected moto
 steamgriddb_config.json           # your SteamGridDB API key - keep this private, don't share/commit it
 steamgriddb_cache.json            # resolved game ids / chosen art per profile, so repeat launches don't re-fetch
 artwork_cache/                    # downloaded cover-art images
-profiles/
-  minecraft/                      # seeded automatically on first run
+profiles/                         # git submodule (TIGHC-Profiles) - see Quick start
+  minecraft/                      # seeded automatically on first run if profiles/ doesn't exist at all
     keybinds.json                 # which keys/buttons do what, and how
     ranges.json                   # intensity/duration bands for each binding
   grounded2/                      # included as a second example profile
@@ -70,6 +87,15 @@ easiest way to add a new one is the GUI's "New profile..." button (it starts
 you off with a copy of the Minecraft profile to edit); to do it by hand, copy
 the `profiles/minecraft/` folder, rename it, and edit `window_titles` plus
 the bindings.
+
+Since `profiles/` is its own git repository (checked out as a submodule, see
+[TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles)), any profile
+you add or edit there has its own commit/push history separate from this
+repo - it won't show up in `git status` here beyond the submodule's pinned
+commit changing. If you want to share a new profile back, commit and push it
+from inside `profiles/` against the TIGHC-Profiles repo (or open a PR there),
+not this one. Purely local/private profiles work fine too - just leave that
+submodule checkout uncommitted/unpushed.
 
 Each binding in `keybinds.json` has:
 

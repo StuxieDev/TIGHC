@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 artwork_cache/
 steamgriddb_cache.json
+haptics_config.json
+devices.json
