@@ -35,7 +35,6 @@ import sv_ttk
 
 from src import core
 from src.core import (
-    HAPTICS_CONFIG_PATH,
     PROFILES_DIR,
     PROJECT_NAME,
     PROJECT_SHORT_NAME,
@@ -1537,11 +1536,10 @@ class App:
     def _build_settings_tab(self):
         """
         Build the Settings tab: one form field/checkbox per
-        haptics_config.json key, pre-filled from load_haptics_config(). These
-        are global engine settings read once at import time (see
-        src/core.py's module-level HAPTICS_CONFIG derivation), so saving here writes the file but
-        doesn't take effect until the app restarts - the warning label at
-        the bottom says as much.
+        haptics_config.json key, pre-filled from load_haptics_config().
+        Saving calls core.apply_haptics_config(), which takes effect
+        immediately (see _on_save_settings) - the WebSocket URL is the one
+        exception, needing a manual reconnect rather than an app restart.
         """
         frame = self.settings_tab
         self._add_header(frame, "Global settings")
@@ -1603,7 +1601,9 @@ class App:
         ttk.Button(body, text="Save settings", command=self._on_save_settings).grid(row=row, column=0, sticky="w", **pad)
         row += 1
         ttk.Label(
-            body, text="Global settings are read once at startup - restart the app for changes to take effect.",
+            body,
+            text="Takes effect immediately - no restart needed. Exception: a WebSocket URL change needs "
+            "\"Connect + Scan\" (or Stop then Start) to actually reconnect to it.",
             style="Hint.TLabel",
         ).grid(row=row, column=0, columnspan=2, sticky="w", **pad)
         row += 1
@@ -1653,12 +1653,14 @@ class App:
     def _on_save_settings(self):
         """
         "Save settings" button handler: assemble a full haptics_config.json-
-        shaped dict from every form field and write it, after validating
-        the master-range values actually form a valid VibeRange. Unlike
-        profile saving, there's no read-back-through-the-real-parser step
+        shaped dict from every form field and hand it to
+        core.apply_haptics_config(), which persists it and updates the
+        engine's live settings in place - no restart needed. Validates the
+        master-range values form a valid VibeRange first; unlike profile
+        saving, there's no separate read-back-through-the-real-parser step
         here (load_haptics_config() doesn't validate ranges the way
-        _load_profile does), so the VibeRange construction below is what catches a
-        swapped/out-of-bounds master range before it hits disk.
+        _load_profile does), so this is what catches a swapped/
+        out-of-bounds master range before it's applied.
         """
         try:
             cfg = {
@@ -1687,8 +1689,20 @@ class App:
         except ValueError as e:
             messagebox.showerror("Settings", f"Invalid value: {e}")
             return
-        HAPTICS_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-        self._enqueue_log("Settings saved. Restart the app for changes to take effect.")
+
+        ws_url_changed = cfg["intiface_ws"] != self.controller.ws_url
+        core.apply_haptics_config(cfg)
+        # apply_haptics_config() can't itself force an already-open
+        # connection to move to a new URL - update the live controller's
+        # ws_url too, so at least the *next* connect (a manual "Connect +
+        # Scan"/Start, or a future auto-reconnect) picks up the change,
+        # rather than silently continuing to use the old one until restart.
+        self.controller.ws_url = cfg["intiface_ws"]
+        self.ws_url_var.set(cfg["intiface_ws"])
+
+        self._enqueue_log("Settings saved and applied immediately.")
+        if ws_url_changed:
+            self._enqueue_log("Intiface WebSocket URL changed - click \"Connect + Scan\" (or Stop then Start) to use it.")
 
     # =============================================================== Run tab
     def _build_run_tab(self):

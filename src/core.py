@@ -241,6 +241,53 @@ FAILURE_RECONNECT_THRESHOLD = HAPTICS_CONFIG["auto_reconnect"]["failure_threshol
 BACKGROUND_TICK = HAPTICS_CONFIG["timing"]["background_tick"]
 
 
+def apply_haptics_config(new_config: dict):
+    """
+    Persist `new_config` to configs/haptics_config.json and take effect
+    immediately, without needing an app restart - HapticsController's
+    methods (roll(), _smooth(), on_key_press()'s panic check,
+    background_loop()'s auto-reconnect check, ...) all read the constants
+    below as plain module globals fresh on every call/tick rather than
+    capturing them once, so reassigning them here is enough for a running
+    engine to pick the change up on its very next read. Called by gui.py's
+    Settings tab save handler instead of writing the file directly.
+
+    The one setting this can't make live on its own is `intiface_ws`: a
+    connection that's already open doesn't get torn down and reopened just
+    because the URL changed. gui.py handles that separately by also
+    updating its HapticsController's own `ws_url` attribute, so the new
+    URL is at least used the next time something (re)connects, rather than
+    silently continuing to point at the old one until an app restart.
+    """
+    global HAPTICS_CONFIG, INTIFACE_WS, MASTER_RANDOM_ENABLED, MASTER_VIBE_RANGE
+    global ENABLE_SMOOTHING, SMOOTHING_FACTOR
+    global ENABLE_PANIC_KEY, PANIC_KEY, PANIC_HOLD_DURATION
+    global ENABLE_AUTO_RECONNECT, RECONNECT_COOLDOWN, FAILURE_RECONNECT_THRESHOLD
+    global BACKGROUND_TICK
+
+    # Constructing VibeRange validates the master range the same way
+    # startup does - an invalid range raises before anything is written or
+    # reassigned, rather than corrupting the on-disk config or leaving the
+    # in-memory globals in a partially-updated state.
+    master_vibe_range = VibeRange(*new_config["master"]["range"])
+
+    HAPTICS_CONFIG_PATH.write_text(json.dumps(new_config, indent=2), encoding="utf-8")
+    HAPTICS_CONFIG = new_config
+
+    INTIFACE_WS = new_config["intiface_ws"]
+    MASTER_RANDOM_ENABLED = new_config["master"]["enabled"]
+    MASTER_VIBE_RANGE = master_vibe_range
+    ENABLE_SMOOTHING = new_config["smoothing"]["enabled"]
+    SMOOTHING_FACTOR = new_config["smoothing"]["factor"]
+    ENABLE_PANIC_KEY = new_config["panic_key"]["enabled"]
+    PANIC_KEY = new_config["panic_key"]["key"].strip().lower()
+    PANIC_HOLD_DURATION = new_config["panic_key"]["hold_duration"]
+    ENABLE_AUTO_RECONNECT = new_config["auto_reconnect"]["enabled"]
+    RECONNECT_COOLDOWN = new_config["auto_reconnect"]["cooldown"]
+    FAILURE_RECONNECT_THRESHOLD = new_config["auto_reconnect"]["failure_threshold"]
+    BACKGROUND_TICK = new_config["timing"]["background_tick"]
+
+
 # ================================================ DEVICE REGISTRY ===========================================
 # Devices are addressed per *capability* (one buttplug "feature" x one output
 # type it supports), not per physical toy - a dual-motor device (e.g. Lovense
