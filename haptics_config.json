@@ -1,0 +1,27 @@
+{
+  "intiface_ws": "ws://127.0.0.1:12345",
+  "master": {
+    "enabled": false,
+    "range": [
+      0.2,
+      1.0
+    ]
+  },
+  "smoothing": {
+    "enabled": true,
+    "factor": 0.35
+  },
+  "panic_key": {
+    "enabled": true,
+    "key": "f12",
+    "hold_duration": 1.0
+  },
+  "auto_reconnect": {
+    "enabled": true,
+    "cooldown": 5.0,
+    "failure_threshold": 10
+  },
+  "timing": {
+    "background_tick": 0.18
+  }
+}
