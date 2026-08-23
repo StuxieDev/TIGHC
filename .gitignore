@@ -1,10 +1,10 @@
-# Personal API credential - never commit this
-steamgriddb_config.json
+# Per-install runtime config/state (haptics_config.json, devices.json,
+# steamgriddb_config.json - which holds a personal API credential -
+# and steamgriddb_cache.json) - generated on first run, not source.
+configs/
 
 # Generated/cached, not source
 __pycache__/
 *.pyc
 artwork_cache/
-steamgriddb_cache.json
-haptics_config.json
-devices.json
+

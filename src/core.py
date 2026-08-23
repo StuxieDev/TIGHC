@@ -1,6 +1,11 @@
-"""The Intiface Game Haptics Controller (TIGHC) - engine module.
+"""The Intiface Game Haptics Controller (TIGHC) - engine + cover-art library.
 
-Drives Buttplug/Intiface haptic devices from any game's key/mouse input.
+Drives Buttplug/Intiface haptic devices from any game's key/mouse input, and
+(optionally) fetches/caches per-profile cover art from SteamGridDB. This
+module is a library only - imported by cli.py (headless) and gui.py
+(interactive) - it isn't meant to be run directly.
+
+=== Engine ===
 
 Listens globally for keyboard and mouse events (via pynput) and turns them
 into vibration levels sent to connected toys (via the buttplug client). It
@@ -29,9 +34,31 @@ load_device_registry), so a keybind can target "all" devices or a specific
 one/two by nickname.
 
 Global settings (connection, panic key, smoothing, etc.) live in
-haptics_config.json, next to this script. All of the above are created with
-sensible defaults on first run - edit them and restart to customize, or use
-gui.py for an interactive configurator. No need to touch this source.
+configs/haptics_config.json. All of the above are created with sensible
+defaults on first run - edit them and restart to customize, or use gui.py
+for an interactive configurator. No need to touch this source.
+
+=== Cover art (SteamGridDB) ===
+
+Fetches and caches cover-art thumbnails per game profile from
+https://www.steamgriddb.com/api/v2 (confirmed against their real OpenAPI
+spec at https://www.steamgriddb.com/static/openapi.yml - their docs *page*
+blocks automated fetches, but the spec file itself doesn't) using a
+user-supplied Bearer API key, which each user generates for free at
+https://www.steamgriddb.com/profile/preferences.
+
+Grid images (the classic box-art tile this fetches) have no "official" vs
+"fan-made" distinction in the API - only Logos and Icons do (via a
+`styles=official|custom` filter). So "prefer the official asset, otherwise
+the first one available" simplifies for grids to just "take the top-scored
+result", since the official-style filter in pick_best() below naturally
+never matches anything and falls through - see pick_best().
+
+Everything here is synchronous/blocking (plain urllib, no extra dependency)
+by design; callers (gui.py) are responsible for running it off the Tk main
+thread, e.g. via a daemon thread + root.after(0, ...) to marshal the result
+back - the same pattern AsyncBridge uses for the engine's coroutines, just
+without needing an event loop for something this simple.
 """
 
 import asyncio
@@ -39,6 +66,9 @@ import ctypes
 import json
 import random
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -47,7 +77,7 @@ from buttplug import ButtplugClient, DeviceOutputCommand, OutputType
 from pynput import keyboard, mouse
 
 # =============================================== PROJECT METADATA ===========================================
-# Single source of truth for identity/version - both haptics.py and gui.py
+# Single source of truth for identity/version - both this module and gui.py
 # (its About tab) read these rather than hardcoding them in two places.
 # Versioning follows Semantic Versioning (semver.org): MAJOR.MINOR.PATCH,
 # where MAJOR bumps mark breaking config-format/behavior changes, MINOR
@@ -56,7 +86,28 @@ from pynput import keyboard, mouse
 PROJECT_NAME = "The Intiface Game Haptics Controller"
 PROJECT_SHORT_NAME = "TIGHC"
 REPO_URL = "https://github.com/StuxieDev/TIGHC"
-__version__ = "2.0.0"
+__version__ = "3.0.0"
+
+# =============================================== FILESYSTEM LAYOUT ==========================================
+# core.py lives at <repo root>/src/core.py, so every path below is resolved
+# relative to the repo root (two levels up from this file), not to this
+# file's own directory - otherwise config/profile lookups would end up
+# looking inside src/ instead of the actual project root.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Per-install runtime config/state - gitignored, never source (see
+# .gitignore) - created with sensible defaults the first time it's needed.
+CONFIGS_DIR = REPO_ROOT / "configs"
+CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+
+# profiles/ is its own git repository (TIGHC-Profiles) checked out as a
+# submodule at the repo root - see the main README's Quick start for how
+# it's cloned/updated. Its location isn't affected by where core.py lives.
+PROFILES_DIR = REPO_ROOT / "profiles"
+
+# Downloaded cover-art images - generated/cached, not really a "config", so
+# it stays at the repo root alongside profiles/ rather than inside configs/.
+ARTWORK_CACHE_DIR = REPO_ROOT / "artwork_cache"
 
 # ================================================== RANGES ==================================================
 
@@ -83,11 +134,13 @@ class VibeRange(FloatRange):
     """A 0.0-1.0 intensity band. Each trigger rolls a random value inside it."""
 
     def __post_init__(self):
+        """Extend FloatRange's low<=high check with the 0.0-1.0 intensity bound."""
         super().__post_init__()
         if not (0.0 <= self.low and self.high <= 1.0):
             raise ValueError(f"Invalid intensity range ({self.low}, {self.high}); must be within 0.0-1.0")
 
     def __str__(self) -> str:
+        """Percent display for banners/GUI, e.g. "40-65%"."""
         return f"{self.low * 100:.0f}-{self.high * 100:.0f}%"
 
 
@@ -96,6 +149,7 @@ class DurationRange(FloatRange):
     """A band of seconds. Each pulse rolls a random duration inside it, so pulses don't all feel identical."""
 
     def __str__(self) -> str:
+        """Seconds display for banners/GUI, e.g. "0.30-0.40s"."""
         return f"{self.low:.2f}-{self.high:.2f}s"
 
 
@@ -112,13 +166,13 @@ class PulseSpec:
 
 
 # ========================================== GLOBAL CONFIG FILE I/O ==========================================
-CONFIG_PATH = Path(__file__).with_name("haptics_config.json")
+HAPTICS_CONFIG_PATH = CONFIGS_DIR / "haptics_config.json"
 
 # Written to disk verbatim the first time the script runs. Every value here
 # has a matching constant derived below, so this is the single source of
 # truth for defaults - keep it in sync if you add a new setting. Per-game
 # keybinds and ranges live in profiles/, not here - see load_profiles().
-DEFAULT_CONFIG = {
+DEFAULT_HAPTICS_CONFIG = {
     "intiface_ws": "ws://127.0.0.1:12345",
     "master": {"enabled": False, "range": [0.20, 1.00]},
     "smoothing": {"enabled": True, "factor": 0.35},
@@ -139,51 +193,51 @@ def _deep_merge(base: dict, overrides: dict) -> dict:
     return merged
 
 
-def load_config() -> dict:
+def load_haptics_config() -> dict:
     """
-    Load haptics_config.json, creating it with DEFAULT_CONFIG if it doesn't
-    exist yet. If it exists but only partially overrides the defaults (e.g.
-    the user only changed `intiface_ws`), the rest is filled in via
-    _deep_merge() so every key the rest of this module expects is always
-    present. Falls back to the in-memory DEFAULT_CONFIG (without touching
-    disk) if the file can't be written or read.
+    Load configs/haptics_config.json, creating it with DEFAULT_HAPTICS_CONFIG
+    if it doesn't exist yet. If it exists but only partially overrides the
+    defaults (e.g. the user only changed `intiface_ws`), the rest is filled
+    in via _deep_merge() so every key the rest of this module expects is
+    always present. Falls back to the in-memory DEFAULT_HAPTICS_CONFIG
+    (without touching disk) if the file can't be written or read.
     """
-    if not CONFIG_PATH.exists():
+    if not HAPTICS_CONFIG_PATH.exists():
         try:
-            CONFIG_PATH.write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
-            print(f"Created default config at {CONFIG_PATH.name} - edit it and restart to customize.")
+            HAPTICS_CONFIG_PATH.write_text(json.dumps(DEFAULT_HAPTICS_CONFIG, indent=2), encoding="utf-8")
+            print(f"Created default config at {HAPTICS_CONFIG_PATH} - edit it and restart to customize.")
         except OSError as e:
             print(f"Could not write default config ({e}); using built-in defaults.")
-        return DEFAULT_CONFIG
+        return DEFAULT_HAPTICS_CONFIG
 
     try:
-        user_config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        user_config = json.loads(HAPTICS_CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        print(f"Could not read {CONFIG_PATH.name} ({e}); using built-in defaults.")
-        return DEFAULT_CONFIG
+        print(f"Could not read {HAPTICS_CONFIG_PATH} ({e}); using built-in defaults.")
+        return DEFAULT_HAPTICS_CONFIG
 
-    return _deep_merge(DEFAULT_CONFIG, user_config)
+    return _deep_merge(DEFAULT_HAPTICS_CONFIG, user_config)
 
 
-CONFIG = load_config()
+HAPTICS_CONFIG = load_haptics_config()
 
-INTIFACE_WS = CONFIG["intiface_ws"]
+INTIFACE_WS = HAPTICS_CONFIG["intiface_ws"]
 
-MASTER_RANDOM_ENABLED = CONFIG["master"]["enabled"]
-MASTER_VIBE_RANGE = VibeRange(*CONFIG["master"]["range"])
+MASTER_RANDOM_ENABLED = HAPTICS_CONFIG["master"]["enabled"]
+MASTER_VIBE_RANGE = VibeRange(*HAPTICS_CONFIG["master"]["range"])
 
-ENABLE_SMOOTHING = CONFIG["smoothing"]["enabled"]
-SMOOTHING_FACTOR = CONFIG["smoothing"]["factor"]
+ENABLE_SMOOTHING = HAPTICS_CONFIG["smoothing"]["enabled"]
+SMOOTHING_FACTOR = HAPTICS_CONFIG["smoothing"]["factor"]
 
-ENABLE_PANIC_KEY = CONFIG["panic_key"]["enabled"]
-PANIC_KEY = CONFIG["panic_key"]["key"].strip().lower()
-PANIC_HOLD_DURATION = CONFIG["panic_key"]["hold_duration"]
+ENABLE_PANIC_KEY = HAPTICS_CONFIG["panic_key"]["enabled"]
+PANIC_KEY = HAPTICS_CONFIG["panic_key"]["key"].strip().lower()
+PANIC_HOLD_DURATION = HAPTICS_CONFIG["panic_key"]["hold_duration"]
 
-ENABLE_AUTO_RECONNECT = CONFIG["auto_reconnect"]["enabled"]
-RECONNECT_COOLDOWN = CONFIG["auto_reconnect"]["cooldown"]
-FAILURE_RECONNECT_THRESHOLD = CONFIG["auto_reconnect"]["failure_threshold"]
+ENABLE_AUTO_RECONNECT = HAPTICS_CONFIG["auto_reconnect"]["enabled"]
+RECONNECT_COOLDOWN = HAPTICS_CONFIG["auto_reconnect"]["cooldown"]
+FAILURE_RECONNECT_THRESHOLD = HAPTICS_CONFIG["auto_reconnect"]["failure_threshold"]
 
-BACKGROUND_TICK = CONFIG["timing"]["background_tick"]
+BACKGROUND_TICK = HAPTICS_CONFIG["timing"]["background_tick"]
 
 
 # ================================================ DEVICE REGISTRY ===========================================
@@ -196,7 +250,7 @@ BACKGROUND_TICK = CONFIG["timing"]["background_tick"]
 # devices.json remembers a friendly nickname for each (device name, feature
 # index, output type) triple so nicknames survive reconnects/rescans;
 # keybinds then target one or more nicknames, or "all".
-DEVICES_PATH = Path(__file__).with_name("devices.json")
+DEVICES_PATH = CONFIGS_DIR / "devices.json"
 
 
 def _slugify(text: str) -> str:
@@ -327,7 +381,6 @@ def resolve_channel_nicknames(registry: list, entries: list) -> dict:
 # Profiles are matched against the foreground window title (see
 # HapticsController._match_profile) so haptics automatically follow whatever
 # game currently has focus, and go idle when nothing matches.
-PROFILES_DIR = Path(__file__).with_name("profiles")
 
 # Seeded to profiles/minecraft/ the first time the script runs (i.e. when
 # profiles/ doesn't exist yet), reproducing the behavior this script used to
@@ -402,9 +455,10 @@ class Profile:
     background: VibeRange
     bindings: list  # raw parsed bindings, in file order, for the startup banner
     # Optional, purely cosmetic: pins this profile to an exact SteamGridDB
-    # game id for cover-art lookup (see steamgriddb.py), bypassing the
-    # by-name search that could otherwise match the wrong game (e.g. a
-    # sequel or spin-off with a similar title). None means "search by name".
+    # game id for cover-art lookup (see get_profile_artwork() below),
+    # bypassing the by-name search that could otherwise match the wrong game
+    # (e.g. a sequel or spin-off with a similar title). None means "search
+    # by name".
     steamgriddb_id: Optional[int] = None
 
     def matches(self, window_title_lower: str) -> bool:
@@ -614,10 +668,10 @@ def load_profiles() -> dict:
     return profiles
 
 
-# Loaded once at import time. haptics.py's own CLI entry point (main(), at
-# the bottom of this file) uses this module-level dict directly; gui.py
-# instead makes its own copy via load_profiles() so it can freely mutate its
-# own controller's profile set (add/edit/reload) without touching this one.
+# Loaded once at import time. cli.py uses this module-level dict directly;
+# gui.py instead makes its own copy via load_profiles() so it can freely
+# mutate its own controller's profile set (add/edit/reload) without
+# touching this one.
 PROFILES = load_profiles()
 
 
@@ -869,8 +923,8 @@ class HapticsController:
         """Roll a level from the given range, unless master randomization overrides it."""
         # MASTER_RANDOM_ENABLED is a global "ignore every per-binding range
         # and just roll from one fixed band instead" override, set in
-        # haptics_config.json - useful for testing or for players who want
-        # pure randomness regardless of what they're doing in-game.
+        # configs/haptics_config.json - useful for testing or for players
+        # who want pure randomness regardless of what they're doing in-game.
         active_range = MASTER_VIBE_RANGE if MASTER_RANDOM_ENABLED else vibe_range
         return active_range.roll()
 
@@ -1157,7 +1211,7 @@ class HapticsController:
             self.log(self._status_line("Panic key", "disabled"))
         self.log(self._status_line("Auto-reconnect", "enabled" if ENABLE_AUTO_RECONNECT else "disabled"))
         self.log(self._status_line("Level smoothing", f"enabled (factor {SMOOTHING_FACTOR})" if ENABLE_SMOOTHING else "disabled"))
-        self.log(f"Global config: {CONFIG_PATH}")
+        self.log(f"Global config: {HAPTICS_CONFIG_PATH}")
         self.log(f"Profiles dir:  {PROFILES_DIR}")
         self.log(f"Devices file:  {DEVICES_PATH}")
 
@@ -1218,43 +1272,191 @@ class HapticsController:
             await self.shutdown()
 
 
-def _confirm_age() -> bool:
-    """Self-attestation age gate for the headless CLI - the GUI has its own dialog equivalent (see gui.py)."""
-    print(f"\n{PROJECT_NAME} ({PROJECT_SHORT_NAME}) v{__version__}")
-    print("This software connects to and controls adult haptic/sex toy devices based on")
-    print("your keyboard and mouse input while gaming. Intended for use only by adults")
-    print("aged 18 or older.")
+# ============================================ COVER ART (SteamGridDB) =======================================
+# See the module docstring above for the API/Cloudflare/threading notes.
+STEAMGRIDDB_API_BASE = "https://www.steamgriddb.com/api/v2"
+# steamgriddb.com sits behind Cloudflare, which blocks requests carrying
+# Python's default urllib User-Agent outright (Cloudflare error 1010) before
+# they ever reach the actual API - confirmed by testing directly: the same
+# request that gets a 403 "error code: 1010" with no/default User-Agent gets
+# a normal 401 (real API auth error) once a browser-like one is set. Every
+# request this module makes needs this header, not just for looking legit,
+# but because omitting it makes every call fail regardless of API key.
+STEAMGRIDDB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
+# Kept separate from haptics_config.json (unlike every other setting)
+# because it holds a personal API credential - easier to keep private/
+# gitignored on its own than to mix it into a file that's otherwise safe
+# to share.
+STEAMGRIDDB_CONFIG_PATH = CONFIGS_DIR / "steamgriddb_config.json"
+# Maps profile id -> resolved game id / chosen grid / local file, so repeat
+# launches don't re-search or re-download unless something actually changed.
+STEAMGRIDDB_CACHE_PATH = CONFIGS_DIR / "steamgriddb_cache.json"
+
+DEFAULT_STEAMGRIDDB_CONFIG = {"enabled": False, "api_key": ""}
+
+
+def load_steamgriddb_config() -> dict:
+    """Load steamgriddb_config.json (API key + enabled flag), or DEFAULT_STEAMGRIDDB_CONFIG if the file is missing/unreadable."""
+    if not STEAMGRIDDB_CONFIG_PATH.exists():
+        return dict(DEFAULT_STEAMGRIDDB_CONFIG)
     try:
-        answer = input("Type 'yes' to confirm you are 18 or older and continue: ").strip().lower()
-    except EOFError:
-        return False
-    return answer == "yes"
+        data = json.loads(STEAMGRIDDB_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return dict(DEFAULT_STEAMGRIDDB_CONFIG)
+    return {**DEFAULT_STEAMGRIDDB_CONFIG, **data}
 
 
-async def main():
-    """Module entry point for `python haptics.py`: age gate, then build a controller from the module-level config/profiles and run it."""
-    if not _confirm_age():
-        print("Age not confirmed - exiting.")
-        return
-    controller = HapticsController(INTIFACE_WS, PROFILES)
-    await controller.run()
+def save_steamgriddb_config(config: dict):
+    """Persist the API key + enabled flag. Does not validate the key - a bad key just fails later, at fetch time."""
+    STEAMGRIDDB_CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+
+def _load_steamgriddb_cache() -> dict:
+    """Load steamgriddb_cache.json (profile id -> resolved game/grid/file info), or {} if missing/unreadable."""
+    if not STEAMGRIDDB_CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(STEAMGRIDDB_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_steamgriddb_cache(cache: dict):
+    """Persist the full cache dict back to steamgriddb_cache.json."""
+    STEAMGRIDDB_CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+
+
+def _steamgriddb_api_get(api_key: str, path: str, params: Optional[dict] = None) -> dict:
+    """GET one SteamGridDB API endpoint (JSON only - not for downloading the images themselves) and return its parsed body."""
+    url = STEAMGRIDDB_API_BASE + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params, doseq=True)
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {api_key}", "User-Agent": STEAMGRIDDB_USER_AGENT}
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def search_game(api_key: str, term: str) -> list:
+    """Search for games by name. Returns [{id, name, types, verified}, ...], already ranked by the API's own relevance order."""
+    data = _steamgriddb_api_get(api_key, f"/search/autocomplete/{urllib.parse.quote(term)}")
+    return data.get("data", [])
+
+
+def get_grids(api_key: str, game_id: int) -> list:
+    """
+    Fetch grid (cover-art) images for a game id, restricted to PNG so
+    Tkinter's built-in PhotoImage can display them directly - no Pillow
+    dependency needed. Returns [] (not an error) if the game has no grids.
+    """
+    try:
+        data = _steamgriddb_api_get(api_key, f"/grids/game/{game_id}", {"mimes": "png"})
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return []
+        raise
+    return data.get("data", [])
+
+
+def pick_best(assets: list) -> Optional[dict]:
+    """
+    Prefer an asset whose style is "official"; otherwise the first one.
+
+    Grids/Heroes never have an "official" style (only Logos/Icons do), so
+    for grids this filter always comes up empty and silently falls through
+    to `assets[0]` - which is exactly "first available", since the API
+    already returns grids ranked by community score. No grid-specific
+    special-casing needed; this same function works correctly if this
+    module is ever extended to fetch logos/icons instead.
+    """
+    if not assets:
+        return None
+    official = [a for a in assets if a.get("style") == "official"]
+    return (official or assets)[0]
+
+
+def _resolve_game_id(api_key: str, profile_name: str, override_id: Optional[int]) -> Optional[int]:
+    """An explicit override always wins; otherwise search by name and prefer a `verified` (SGDB-curated) match."""
+    if override_id is not None:
+        return override_id
+    results = search_game(api_key, profile_name)
+    if not results:
+        return None
+    verified = [g for g in results if g.get("verified")]
+    return (verified or results)[0]["id"]
+
+
+def get_profile_artwork(
+    profile_id: str, profile_name: str, override_id: Optional[int] = None, force_refresh: bool = False
+) -> Optional[Path]:
+    """
+    Return a local file path to this profile's cached cover-art PNG,
+    resolving/fetching/caching it from SteamGridDB as needed.
+
+    Returns None if the integration is disabled, no API key is configured,
+    nothing could be found, or any network/API error occurs along the way -
+    callers should treat None as "no artwork available right now" and just
+    not show an image, not as something to surface as an error.
+
+    The on-disk cache entry is only trusted if it still matches what's
+    being asked for now (the same override_id, or - with no override - the
+    same profile_name); renaming a profile or setting/changing its
+    steamgriddb_id invalidates the old entry and triggers a fresh lookup.
+    """
+    config = load_steamgriddb_config()
+    if not config.get("enabled") or not config.get("api_key"):
+        return None
+    api_key = config["api_key"]
+
+    cache = _load_steamgriddb_cache()
+    entry = cache.get(profile_id, {})
+    cache_matches_request = (
+        (override_id is not None and entry.get("game_id") == override_id)
+        or (override_id is None and entry.get("resolved_name") == profile_name)
+    )
+    if not force_refresh and cache_matches_request and entry.get("cached_file"):
+        cached_path = Path(entry["cached_file"])
+        if cached_path.exists():
+            return cached_path
+
+    try:
+        game_id = _resolve_game_id(api_key, profile_name, override_id)
+        if game_id is None:
+            return None
+
+        best = pick_best(get_grids(api_key, game_id))
+        if best is None:
+            return None
+
+        ARTWORK_CACHE_DIR.mkdir(exist_ok=True)
+        cached_path = ARTWORK_CACHE_DIR / f"{best['id']}.png"
+        if force_refresh or not cached_path.exists():
+            # The image itself lives on SGDB's CDN, not the API host, and
+            # doesn't need the Bearer token (it's a public asset) - but still
+            # gets the same User-Agent, since a CDN behind the same kind of
+            # bot protection could block a bare urllib request just as the
+            # API host does (see the USER_AGENT comment above).
+            image_request = urllib.request.Request(best["url"], headers={"User-Agent": STEAMGRIDDB_USER_AGENT})
+            with urllib.request.urlopen(image_request, timeout=15) as response:
+                cached_path.write_bytes(response.read())
+
+        cache[profile_id] = {
+            "game_id": game_id,
+            "resolved_name": profile_name,
+            "grid_id": best["id"],
+            "cached_file": str(cached_path),
+        }
+        _save_steamgriddb_cache(cache)
+        return cached_path
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nStopped.")
-
-# Run with:
-#   python haptics.py           (headless, hand-edited JSON configs)
-#   python gui.py                (interactive: connect devices, configure, start/stop)
-#
-# Or if that doesn't work:
-#   py haptics.py
-#
-# Or full path example (edit to match your Python install + where you saved the file, if you are on windows you may have saved to onedrive in the cloud, I also had that issue):
-#   & "C:\Path\To\python.exe" "C:\Path\To\haptics.py"
+    print(f"{__file__} is the {PROJECT_SHORT_NAME} engine + cover-art library - it's not meant to be run directly.")
+    print("Run `python cli.py` (from the repo root) for the headless CLI, or `python gui.py` for the interactive GUI.")
 
 # Happy Vibes
 # KARMA

@@ -2,10 +2,10 @@
 
 > **18+ only.** This software connects to and controls adult haptic/sex toy
 > devices based on your keyboard and mouse input while gaming. It is intended
-> for use only by adults aged 18 or older. Both `gui.py` and `haptics.py`
+> for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 2.0.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.0.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 A haptic controller that links your keyboard/mouse input to a Buttplug/Intiface
@@ -43,9 +43,9 @@ This opens an interactive window: connect to Intiface, scan for devices,
 assign nicknames to each motor/capability, build or edit game profiles, tune
 global settings, and start/stop the haptics engine - all in one place.
 
-Prefer the terminal? `python haptics.py` runs the same engine headlessly
-using whatever's already on disk (see below) - no GUI, just hand-edit the
-JSON files and restart to change things.
+Prefer the terminal? `python cli.py` runs the same engine headlessly using
+whatever's already on disk (see below) - no GUI, just hand-edit the JSON
+files and restart to change things.
 
 If `python` doesn't work, try `py` instead, or call your Python install by
 full path (Windows users on OneDrive-synced folders sometimes need this).
@@ -53,13 +53,15 @@ full path (Windows users on OneDrive-synced folders sometimes need this).
 ## How it's organized
 
 ```
-haptics.py                        # the engine (importable, also runs headless)
-gui.py                            # interactive configurator + launcher
-steamgriddb.py                    # optional cover-art fetching (see "Cover art" below)
-haptics_config.json               # global settings (connection, panic key, smoothing, ...)
-devices.json                      # remembers a nickname for each connected motor/capability
-steamgriddb_config.json           # your SteamGridDB API key - keep this private, don't share/commit it
-steamgriddb_cache.json            # resolved game ids / chosen art per profile, so repeat launches don't re-fetch
+src/
+  core.py                         # engine + cover-art library - not meant to be run directly
+cli.py                            # headless CLI entry point (imports src/core.py)
+gui.py                            # interactive configurator + launcher (also imports src/core.py)
+configs/                          # per-install runtime config/state - gitignored, not source
+  haptics_config.json             # global settings (connection, panic key, smoothing, ...)
+  devices.json                    # remembers a nickname for each connected motor/capability
+  steamgriddb_config.json         # your SteamGridDB API key - keep this private, don't share/commit it
+  steamgriddb_cache.json          # resolved game ids / chosen art per profile, so repeat launches don't re-fetch
 artwork_cache/                    # downloaded cover-art images
 profiles/                         # git submodule (TIGHC-Profiles) - see Quick start
   minecraft/                      # seeded automatically on first run if profiles/ doesn't exist at all
@@ -73,9 +75,11 @@ profiles/                         # git submodule (TIGHC-Profiles) - see Quick s
     ranges.json
 ```
 
-All of these are created with sensible defaults the first time you run
-`haptics.py` or `gui.py`. Editing them by hand and using the GUI are fully
-interchangeable - both just read/write the same files.
+`configs/` and its contents, along with `artwork_cache/`, are created
+automatically (with sensible defaults) the first time you run `cli.py` or
+`gui.py` - you don't need to create them yourself. Editing the JSON files by
+hand and using the GUI are fully interchangeable - both just read/write the
+same files.
 
 ## Profiles: one per game
 
@@ -107,7 +111,7 @@ Each binding in `keybinds.json` has:
   - `"pulse"` - a single randomized buzz each time it's pressed, regardless
     of how long it's held (e.g. jump, drop, opening inventory).
 - **`devices`** - which channel(s) this binding drives: a list of nicknames
-  from `devices.json`, or `["all"]` (the default if omitted).
+  from `configs/devices.json`, or `["all"]` (the default if omitted).
 - **`enabled`** - set to `false` to turn a binding off without deleting it.
 
 The matching entry in `ranges.json` (keyed by the same binding `id`) holds
@@ -156,8 +160,8 @@ dual-motor toy (e.g. Lovense Edge) is two, each targetable separately by a
 different keybind; a device that supports both vibrating and oscillating
 exposes both as separate channels too.
 
-`devices.json` remembers a friendly nickname for each channel so it stays
-the same across reconnects and rescans. The GUI's Devices tab lists
+`configs/devices.json` remembers a friendly nickname for each channel so it
+stays the same across reconnects and rescans. The GUI's Devices tab lists
 everything found on scan and lets you rename any of them; a keybind then
 targets one, several, or `"all"` of these nicknames via its `devices` field.
 
@@ -192,16 +196,17 @@ icons, not the cover-art grids shown here - grids don't have an official/
 fan-made distinction in their API, so this just uses whichever grid has the
 most community votes.
 
-`steamgriddb_config.json` holds your API key in plain text - treat it like a
-password (don't commit it or share the file).
+`configs/steamgriddb_config.json` holds your API key in plain text - treat
+it like a password (don't commit it or share the file).
 
 ## Global settings
 
-`haptics_config.json` covers everything that isn't game- or device-specific:
-the Intiface WebSocket URL, a master randomization override, level
-smoothing, the panic key (forces everything off for a moment), auto-reconnect,
-and the background tick rate. Edit it (by hand or via the GUI's Settings tab)
-and restart the app to pick up changes - these are read once at startup.
+`configs/haptics_config.json` covers everything that isn't game- or
+device-specific: the Intiface WebSocket URL, a master randomization
+override, level smoothing, the panic key (forces everything off for a
+moment), auto-reconnect, and the background tick rate. Edit it (by hand or
+via the GUI's Settings tab) and restart the app to pick up changes - these
+are read once at startup.
 
 ## About, versioning, and contact
 

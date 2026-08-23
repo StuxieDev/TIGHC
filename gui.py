@@ -1,14 +1,14 @@
 """The Intiface Game Haptics Controller (TIGHC) - interactive GUI.
 
-Tkinter configurator and launcher for haptics.py.
+Tkinter configurator and launcher for src/core.py.
 
 Connect to Intiface, scan for devices, assign friendly nicknames to
 individual motors/capabilities, build game profiles (keybinds + ranges +
 which device each keybind drives), tweak global settings, and start/stop
 the haptics engine - all from one window. Everything you do here is written
-to the same JSON files haptics.py reads (haptics_config.json, devices.json,
-profiles/<id>/{keybinds,ranges}.json), so hand-editing those files and using
-this GUI are fully interchangeable.
+to the same JSON files src/core.py reads (configs/haptics_config.json,
+configs/devices.json, profiles/<id>/{keybinds,ranges}.json), so hand-editing
+those files and using this GUI are fully interchangeable.
 
 The buttplug/asyncio side of things runs on a dedicated background thread
 (AsyncBridge) so the Tkinter main loop never blocks; button handlers submit
@@ -33,9 +33,9 @@ from tkinter import messagebox, scrolledtext, simpledialog, ttk
 # Install with: pip install sv_ttk
 import sv_ttk
 
-import haptics
-from haptics import (
-    CONFIG_PATH,
+from src import core
+from src.core import (
+    HAPTICS_CONFIG_PATH,
     PROFILES_DIR,
     PROJECT_NAME,
     PROJECT_SHORT_NAME,
@@ -44,12 +44,11 @@ from haptics import (
     HapticsController,
     VibeRange,
     __version__,
-    load_config,
+    load_haptics_config,
     load_device_registry,
     load_profiles,
     save_device_registry,
 )
-import steamgriddb
 
 CHANGELOG_PATH = Path(__file__).with_name("CHANGELOG.md")
 ARTWORK_THUMBNAIL_WIDTH = 140  # target width in pixels; see _load_thumbnail_image
@@ -127,7 +126,7 @@ class App:
 
         self.log_queue = queue.Queue()
         self.bridge = AsyncBridge()
-        self.controller = HapticsController(haptics.INTIFACE_WS, dict(haptics.PROFILES), log_fn=self._enqueue_log)
+        self.controller = HapticsController(core.INTIFACE_WS, dict(core.PROFILES), log_fn=self._enqueue_log)
 
         self.current_profile_id = None
         self.current_bindings = []  # editable plain-dict copies of the loaded profile's bindings
@@ -259,7 +258,7 @@ class App:
         Load a cached artwork PNG into a tk.PhotoImage, downscaled to
         roughly ARTWORK_THUMBNAIL_WIDTH wide. tk.PhotoImage only supports
         PNG/GIF/PPM natively (no Pillow dependency needed, since
-        steamgriddb.py only ever downloads PNGs) and can only shrink by
+        core.py's cover-art fetcher only ever downloads PNGs) and can only shrink by
         integer factors via subsample() - fine for a small thumbnail, if
         slightly cruder than a real resize.
         """
@@ -273,14 +272,14 @@ class App:
     def _fetch_artwork_async(self, profile_id, profile_name, override_id, on_done, force_refresh=False):
         """
         Fetch (or load from cache) one profile's artwork on a daemon
-        thread - steamgriddb.get_profile_artwork() does blocking network
+        thread - core.get_profile_artwork() does blocking network
         I/O, which must not run on the Tk main thread - then hand the
         resulting Path (or None) back to `on_done` via root.after so it's
         safe to touch widgets from there.
         """
         def worker():
             """Runs on the background thread: do the blocking fetch, then hand off to on_done via root.after (thread-safe)."""
-            path = steamgriddb.get_profile_artwork(profile_id, profile_name, override_id, force_refresh=force_refresh)
+            path = core.get_profile_artwork(profile_id, profile_name, override_id, force_refresh=force_refresh)
             self.root.after(0, on_done, path)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -557,7 +556,7 @@ class App:
     def _binding_to_editable(binding: dict) -> dict:
         """
         Convert one of Profile.bindings' parsed dicts (which hold VibeRange/
-        DurationRange/frozenset objects, as produced by haptics._load_profile)
+        DurationRange/frozenset objects, as produced by core._load_profile)
         into a plain, JSON-friendly, Tkinter-Var-friendly dict that the
         bindings table and the add/edit dialog can work with directly.
         The reverse conversion happens in _compose_profile_files().
@@ -600,7 +599,7 @@ class App:
         """
         Kick off an async fetch of the current profile's cover art and
         update the thumbnail once it resolves (or show "(no cover art)" if
-        it can't be found/fetched/disabled - see steamgriddb.get_profile_artwork
+        it can't be found/fetched/disabled - see core.get_profile_artwork
         for exactly what that covers). Called whenever the selected profile
         changes, and after cover-art settings or the profile's
         steamgriddb_id are changed.
@@ -655,7 +654,7 @@ class App:
         new_id = simpledialog.askstring("New profile", "Folder id (letters/numbers/underscores):", parent=self.root)
         if not new_id:
             return
-        new_id = haptics._slugify(new_id)
+        new_id = core._slugify(new_id)
         new_dir = PROFILES_DIR / new_id
         if new_dir.exists():
             messagebox.showerror("New profile", f"profiles/{new_id} already exists.")
@@ -672,8 +671,8 @@ class App:
             keybinds = json.loads((template_dir / "keybinds.json").read_text(encoding="utf-8"))
             ranges = json.loads((template_dir / "ranges.json").read_text(encoding="utf-8"))
         else:
-            keybinds = copy.deepcopy(haptics.DEFAULT_MINECRAFT_KEYBINDS)
-            ranges = copy.deepcopy(haptics.DEFAULT_MINECRAFT_RANGES)
+            keybinds = copy.deepcopy(core.DEFAULT_MINECRAFT_KEYBINDS)
+            ranges = copy.deepcopy(core.DEFAULT_MINECRAFT_RANGES)
         keybinds["name"] = display_name
         keybinds["window_titles"] = [window_title.lower()]
 
@@ -681,7 +680,7 @@ class App:
         (new_dir / "keybinds.json").write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
         (new_dir / "ranges.json").write_text(json.dumps(ranges, indent=2), encoding="utf-8")
         try:
-            profile = haptics._load_profile(new_dir)
+            profile = core._load_profile(new_dir)
         except Exception as e:
             shutil.rmtree(new_dir)
             messagebox.showerror("New profile", f"Failed to create profile: {e}")
@@ -765,7 +764,7 @@ class App:
         "Save profile" button handler. Snapshots the current on-disk JSON
         first, writes the new keybinds.json/ranges.json from the form, then
         immediately tries to load them back through the real engine parser
-        (haptics._load_profile) - if that fails, the snapshot is restored
+        (core._load_profile) - if that fails, the snapshot is restored
         so a bad edit never leaves the profile folder in a broken state,
         and the error is shown to the user instead of only surfacing the
         next time the app starts. On success, refreshes both the
@@ -788,7 +787,7 @@ class App:
         keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
         ranges_path.write_text(json.dumps(ranges, indent=2), encoding="utf-8")
         try:
-            profile = haptics._load_profile(profile_dir)
+            profile = core._load_profile(profile_dir)
         except Exception as e:
             keybinds_path.write_text(backup[0], encoding="utf-8")
             ranges_path.write_text(backup[1], encoding="utf-8")
@@ -818,7 +817,7 @@ class App:
         keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
 
         try:
-            profile = haptics._load_profile(profile_dir)
+            profile = core._load_profile(profile_dir)
         except Exception as e:
             messagebox.showerror("Cover art", f"Failed to apply: {e}")
             return
@@ -842,7 +841,7 @@ class App:
         if not self.current_profile_id:
             return
         profile = self.controller.profiles[self.current_profile_id]
-        config = steamgriddb.load_config()
+        config = core.load_steamgriddb_config()
         if not config.get("enabled") or not config.get("api_key"):
             messagebox.showinfo("Cover art", "Enable cover art and set an API key in Settings first.")
             return
@@ -866,7 +865,7 @@ class App:
             """"Search" button handler (also called once up front to pre-populate results for the profile's own name)."""
             nonlocal results
             try:
-                results = steamgriddb.search_game(config["api_key"], term_var.get().strip())
+                results = core.search_game(config["api_key"], term_var.get().strip())
             except Exception as e:
                 messagebox.showerror("Search failed", str(e), parent=dialog)
                 return
@@ -1038,7 +1037,7 @@ class App:
     # game running: drive a channel directly (bypassing profiles/keybinds
     # entirely), or simulate a profile's keybinds being pressed (exercising
     # the same code path real input does, via HapticsController.test_pulse()
-    # and a "pinned" active profile - see test_profile_override in haptics.py).
+    # and a "pinned" active profile - see test_profile_override in src/core.py).
     def _build_test_tab(self):
         """
         Build the Test tab: a profile picker + pin toggle + "Stop all
@@ -1295,9 +1294,9 @@ class App:
     def _build_settings_tab(self):
         """
         Build the Settings tab: one form field/checkbox per
-        haptics_config.json key, pre-filled from load_config(). These are
-        global engine settings read once at import time (see haptics.py's
-        module-level CONFIG derivation), so saving here writes the file but
+        haptics_config.json key, pre-filled from load_haptics_config(). These
+        are global engine settings read once at import time (see
+        src/core.py's module-level HAPTICS_CONFIG derivation), so saving here writes the file but
         doesn't take effect until the app restarts - the warning label at
         the bottom says as much.
         """
@@ -1309,7 +1308,7 @@ class App:
         body = ttk.Frame(frame)
         body.pack(fill="both", expand=True, padx=PADX, pady=PADY)
 
-        cfg = load_config()
+        cfg = load_haptics_config()
         pad = {"padx": 6, "pady": 3}
         self.cfg_vars = {}
         row = 0
@@ -1372,7 +1371,7 @@ class App:
         )
         row += 1
 
-        sgdb_cfg = steamgriddb.load_config()
+        sgdb_cfg = core.load_steamgriddb_config()
         self.sgdb_enabled_var = tk.BooleanVar(value=sgdb_cfg.get("enabled", False))
         ttk.Checkbutton(body, text="Show profile cover art (fetched from SteamGridDB)", variable=self.sgdb_enabled_var).grid(
             row=row, column=0, columnspan=2, sticky="w", **pad
@@ -1402,7 +1401,7 @@ class App:
 
     def _on_save_steamgriddb_settings(self):
         """"Save cover art settings" button handler: persist to steamgriddb_config.json and immediately try to (re)load artwork."""
-        steamgriddb.save_config({"enabled": self.sgdb_enabled_var.get(), "api_key": self.sgdb_api_key_var.get().strip()})
+        core.save_steamgriddb_config({"enabled": self.sgdb_enabled_var.get(), "api_key": self.sgdb_api_key_var.get().strip()})
         self._enqueue_log("Cover art settings saved.")
         self._refresh_profile_artwork()
         self._refresh_test_artwork()
@@ -1413,8 +1412,8 @@ class App:
         shaped dict from every form field and write it, after validating
         the master-range values actually form a valid VibeRange. Unlike
         profile saving, there's no read-back-through-the-real-parser step
-        here (load_config() doesn't validate ranges the way _load_profile
-        does), so the VibeRange construction below is what catches a
+        here (load_haptics_config() doesn't validate ranges the way
+        _load_profile does), so the VibeRange construction below is what catches a
         swapped/out-of-bounds master range before it hits disk.
         """
         try:
@@ -1444,7 +1443,7 @@ class App:
         except ValueError as e:
             messagebox.showerror("Settings", f"Invalid value: {e}")
             return
-        CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        HAPTICS_CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         self._enqueue_log("Settings saved. Restart the app for changes to take effect.")
 
     # =============================================================== Run tab
@@ -1684,10 +1683,12 @@ def _show_age_gate(root) -> bool:
     confirmed = {"value": False}
 
     def confirm():
+        """"I am 18 or older" button handler: record acceptance and close the dialog."""
         confirmed["value"] = True
         dialog.destroy()
 
     def decline():
+        """"Exit" button handler (also the window-close [X] via WM_DELETE_WINDOW below): record refusal and close."""
         confirmed["value"] = False
         dialog.destroy()
 
@@ -1717,6 +1718,18 @@ def _show_age_gate(root) -> bool:
     y = root.winfo_screenheight() // 2 - dialog.winfo_height() // 2
     dialog.geometry(f"+{x}+{y}")
 
+    # Force this to the foreground. Windows doesn't always let a process
+    # launched from a terminal/IDE steal focus on its own, so without this a
+    # freshly-created Toplevel can end up parked behind the launching
+    # terminal window - technically open, but invisible until you manually
+    # alt-tab to it. Toggling -topmost on then off (rather than leaving it
+    # topmost permanently) pulls it to the front once without pinning it
+    # above every other window for the rest of the session.
+    dialog.lift()
+    dialog.attributes("-topmost", True)
+    dialog.after_idle(dialog.attributes, "-topmost", False)
+    dialog.focus_force()
+
     root.wait_window(dialog)
     return confirmed["value"]
 
@@ -1729,6 +1742,12 @@ def main():
         root.destroy()
         return
     root.deiconify()
+    # Same foreground-stealing fix as the age gate above - otherwise the
+    # main window can open behind the terminal/IDE that launched it.
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after_idle(root.attributes, "-topmost", False)
+    root.focus_force()
     App(root)
     root.mainloop()
 

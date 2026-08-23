@@ -5,6 +5,26 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.0.0]
+
+Project layout reorganized so it's no longer ambiguous which file to run.
+
+### Changed
+- **Breaking:** `haptics.py` and `steamgriddb.py` are merged into a single
+  library module, `src/core.py`. Neither top-level file exists anymore.
+- **Breaking:** the headless CLI is now its own file, `cli.py` - run
+  `python cli.py` instead of `python haptics.py` to start the engine from
+  the terminal. `src/core.py` is purely a library (imported by both `cli.py`
+  and `gui.py`) and refuses to run directly - doing so now prints a pointer
+  to `cli.py`/`gui.py` instead of silently doing nothing or starting
+  anything unexpected.
+- **Breaking:** per-install runtime config/state (`haptics_config.json`,
+  `devices.json`, `steamgriddb_config.json`, `steamgriddb_cache.json`) now
+  lives under a `configs/` folder instead of the repo root. The folder is
+  created automatically on first run; existing installs should move their
+  files into `configs/` (or just let the app regenerate them with defaults).
+- `gui.py` is unchanged as the primary way to run TIGHC (`python gui.py`).
+
 ## [2.0.0]
 
 Renamed the project from "Minecraft-x-Lovense-intiface" / "Game Haptics" to
