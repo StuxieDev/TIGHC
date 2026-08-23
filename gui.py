@@ -374,9 +374,15 @@ class App:
         # initial scan) + Rescan (reuse the existing connection, look again).
         top = ttk.Frame(frame)
         top.pack(fill="x", padx=PADX, pady=PADY)
+        # Read-only display, not an editable field here - the Settings tab
+        # is the one place that actually persists intiface_ws (to
+        # haptics_config.json), so letting this one be edited too would
+        # just be a second, easy-to-forget-about place the URL could
+        # silently diverge from what's actually saved.
         ttk.Label(top, text="Intiface WebSocket URL:").pack(side="left")
         self.ws_url_var = tk.StringVar(value=self.controller.ws_url)
-        ttk.Entry(top, textvariable=self.ws_url_var, width=30).pack(side="left", padx=6)
+        ttk.Entry(top, textvariable=self.ws_url_var, width=30, state="readonly").pack(side="left", padx=6)
+        ttk.Label(top, text="(set in Settings)", style="Hint.TLabel").pack(side="left", padx=(0, 6))
         self.connect_btn = ttk.Button(top, text="Connect + Scan", command=self._on_connect_clicked)
         self.connect_btn.pack(side="left", padx=4)
         self.rescan_btn = ttk.Button(top, text="Rescan", command=self._on_rescan_clicked)
@@ -408,9 +414,11 @@ class App:
         controller.connect() to the async bridge, and re-enables it once
         the result comes back via _after_connect - the button itself is
         the only thing guarding against a second click firing a second
-        connection attempt while the first is still in flight.
+        connection attempt while the first is still in flight. Uses
+        controller.ws_url as-is; the URL field next to this button is
+        read-only (see _build_devices_tab) - Settings is the only place
+        that changes it.
         """
-        self.controller.ws_url = self.ws_url_var.get().strip()
         self.connect_btn.config(state="disabled")
         self.connection_status_var.set(f"Connecting to {self.controller.ws_url} ...")
         self._enqueue_log(f"Connecting to {self.controller.ws_url} ...")
