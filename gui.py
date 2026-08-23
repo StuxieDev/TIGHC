@@ -202,6 +202,13 @@ class App:
         top_bar.pack(fill="x", padx=PADX // 2, pady=(PADY // 2, 0))
         self.theme_toggle_btn = ttk.Button(top_bar, text=self._theme_toggle_label(), command=self._on_toggle_theme)
         self.theme_toggle_btn.pack(side="right")
+        # Visible from every tab, not just Devices/Run - kept current by
+        # _poll_status() (same 400ms poll that already drove the Run tab's
+        # "Live status" label) so there's always a clear, hard-to-miss
+        # answer to "is this actually connected right now", regardless of
+        # which tab happens to be open.
+        self.connection_status_var = tk.StringVar(value="Not connected")
+        ttk.Label(top_bar, textvariable=self.connection_status_var, style="Hint.TLabel").pack(side="left")
 
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=PADX // 2, pady=PADY // 2)
@@ -405,6 +412,7 @@ class App:
         """
         self.controller.ws_url = self.ws_url_var.get().strip()
         self.connect_btn.config(state="disabled")
+        self.connection_status_var.set(f"Connecting to {self.controller.ws_url} ...")
         self._enqueue_log(f"Connecting to {self.controller.ws_url} ...")
         fut = self.bridge.submit(self.controller.connect())
         fut.add_done_callback(lambda f: self.root.after(0, self._after_connect, f))
@@ -1711,6 +1719,8 @@ class App:
         `_start()` coroutine wrapping both instead of calling them directly.
         """
         self.start_btn.config(state="disabled")
+        if not self.controller.client:
+            self.connection_status_var.set(f"Connecting to {self.controller.ws_url} ...")
 
         async def _start():
             """Runs on the bridge's loop: connect if needed, then start the engine. Returns whether it's now actually running."""
@@ -1860,7 +1870,8 @@ class App:
         Runs every 400ms on the Tk main thread (self-rescheduling, same
         pattern as _poll_log_queue): refreshes the Run tab's "Live status"
         label with the current active profile and every channel's last-sent
-        level. Reads controller/channel attributes directly rather than
+        level, and the top bar's always-visible connection indicator (see
+        _build_ui). Reads controller/channel attributes directly rather than
         through a queue - safe enough for a display-only read of simple
         values (floats, a profile reference) under the GIL, unlike posting
         a mutating command the other direction.
@@ -1871,8 +1882,12 @@ class App:
             for nickname, channel in sorted(self.controller.channels.items()):
                 lines.append(f"  {nickname}: {channel.last_level * 100:.0f}%")
             self.levels_label.config(text="\n".join(lines))
+            self.connection_status_var.set(f"Connected - {len(self.controller.channels)} channel(s)")
         else:
             self.levels_label.config(text="(not connected)")
+            self.connection_status_var.set(
+                "Connected - no devices found" if self.controller.client else "Not connected"
+            )
         self._status_poll_id = self.root.after(400, self._poll_status)
 
     def _on_close(self):

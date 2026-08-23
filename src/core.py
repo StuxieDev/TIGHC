@@ -1069,6 +1069,22 @@ class HapticsController:
         for channel in targets:
             channel.pulse_active = False
 
+        engine_running = self._background_task is not None and not self._background_task.done()
+        if not engine_running:
+            # background_loop() isn't running to pick up the reset on its
+            # next tick - e.g. firing a test pulse from the GUI's Test tab
+            # before clicking Start - so nothing else would ever turn this
+            # channel back off, leaving it stuck at the pulsed level
+            # forever. Explicitly reset it (to a manual test hold if one's
+            # active, else off). When the engine IS running, skip this and
+            # let background_loop's own next tick handle it with its usual
+            # smoothing instead, so a pulse during real gameplay transitions
+            # straight to whatever continuous binding still applies rather
+            # than dipping to zero first.
+            await asyncio.gather(
+                *(self._set_channel_level(c, c.manual_override if c.manual_override is not None else 0.0) for c in targets)
+            )
+
     async def pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset]):
         """Short randomized vibration triggered by real input - a no-op while no profile is active."""
         if self.active_profile is None:
