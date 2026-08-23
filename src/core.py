@@ -65,6 +65,7 @@ import asyncio
 import ctypes
 import json
 import random
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -701,16 +702,83 @@ def normalize_key(key) -> str:
     return raw
 
 
-def get_foreground_window_title() -> str:
-    """Windows-only; returns "" (so no profile matches) anywhere else or on error."""
+# Cached across calls - get_foreground_window_title() runs every
+# BACKGROUND_TICK (~180ms by default), and opening a fresh X11 connection
+# on every single tick would be wasteful latency for no reason. Dropped and
+# recreated on the next call if it ever errors (e.g. the X server restarts,
+# or a session switch happens while the app is running).
+_x11_display = None
+
+
+def _get_x11_display():
+    """Lazily create (and cache) the X11 Display connection used for Linux foreground-window lookups - see _get_foreground_window_title_x11()."""
+    global _x11_display
+    if _x11_display is None:
+        from Xlib import display  # optional Linux-only dependency - see requirements.txt's environment marker
+
+        _x11_display = display.Display()
+    return _x11_display
+
+
+def _get_foreground_window_title_x11() -> str:
+    """
+    Linux/X11 implementation of get_foreground_window_title(). Requires the
+    optional python-xlib dependency and an actual X11 session - on Steam
+    Deck, Desktop Mode defaults to Wayland as of SteamOS 3.8, which doesn't
+    expose this at all (by design - Wayland's security model doesn't let
+    one app query which window another has focused), so switch to X11 first
+    with `steamos-session-select plasma-x11-persistent`. Missing dependency,
+    no X11 session, or any other failure all just return "" - same as
+    Windows' version, and same meaning: no profile matches, haptics idle.
+    """
     try:
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
-        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-        buffer = ctypes.create_unicode_buffer(length + 1)
-        ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
-        return buffer.value
+        d = _get_x11_display()
+        net_active_window = d.intern_atom("_NET_ACTIVE_WINDOW")
+        window_id_prop = d.screen().root.get_full_property(net_active_window, 0)
+        if not window_id_prop or not window_id_prop.value:
+            return ""
+        window_id = window_id_prop.value[0]
+        if window_id == 0:
+            return ""
+        window = d.create_resource_object("window", window_id)
+
+        net_wm_name = d.intern_atom("_NET_WM_NAME")
+        utf8_string = d.intern_atom("UTF8_STRING")
+        name_prop = window.get_full_property(net_wm_name, utf8_string)
+        if name_prop and name_prop.value:
+            return name_prop.value.decode("utf-8", errors="replace")
+
+        # Fall back to the older, non-EWMH WM_NAME property - some windows
+        # (typically older X11 apps, and games running under some Proton/
+        # compatibility layers) don't set _NET_WM_NAME at all.
+        wm_name = window.get_wm_name()
+        return wm_name if isinstance(wm_name, str) else ""
     except Exception:
+        global _x11_display
+        _x11_display = None  # drop a possibly-broken connection so the next call opens a fresh one instead of repeating the same failure forever
         return ""
+
+
+def get_foreground_window_title() -> str:
+    """
+    Returns the currently-focused window's title, used to match against a
+    profile's window_titles - Windows via Win32 APIs, Linux via X11 (see
+    _get_foreground_window_title_x11 for the Steam Deck / Wayland caveat).
+    Returns "" (so no profile matches, haptics stay idle) on any other
+    platform or on error - never raises.
+    """
+    if sys.platform == "win32":
+        try:
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
+            return buffer.value
+        except Exception:
+            return ""
+    if sys.platform.startswith("linux"):
+        return _get_foreground_window_title_x11()
+    return ""
 
 
 @dataclass

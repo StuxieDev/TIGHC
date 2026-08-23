@@ -1,3 +1,4 @@
 buttplug
 pynput
 sv_ttk
+python-xlib; sys_platform == "linux"

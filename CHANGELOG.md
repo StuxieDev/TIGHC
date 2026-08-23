@@ -26,6 +26,15 @@ Project layout reorganized so it's no longer ambiguous which file to run.
 - `gui.py` is unchanged as the primary way to run TIGHC (`python gui.py`).
 
 ### Added
+- **Linux / Steam Deck Desktop Mode support**: `get_foreground_window_title()`
+  was hardcoded to Win32 APIs, so profile auto-switching (and therefore the
+  whole engine) never worked outside Windows. Added an X11 implementation
+  (via the new, Linux-only `python-xlib` dependency) alongside it, dispatched
+  by platform at runtime. Requires an actual X11 session - Steam Deck
+  Desktop Mode defaults to Wayland as of SteamOS 3.8, which doesn't expose
+  focused-window info (or support pynput's global input capture) to other
+  apps by design; switch once with `steamos-session-select
+  plasma-x11-persistent`. See the new README section for details.
 - **Cover image picker**: the Profiles tab's "Choose image..." button lets
   you browse every cover-art image SteamGridDB has for a profile's game (not
   just the automatically-chosen top-voted one) and pin a specific one -
