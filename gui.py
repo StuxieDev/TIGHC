@@ -324,7 +324,9 @@ class App:
         """
         def worker():
             """Runs on the background thread: do the blocking fetch, then hand off to on_done via root.after (thread-safe)."""
-            path = core.get_profile_artwork(profile_id, profile_name, override_id, force_refresh=force_refresh)
+            path = core.get_profile_artwork(
+                profile_id, profile_name, override_id, force_refresh=force_refresh, log_fn=self._enqueue_log
+            )
             self.root.after(0, on_done, path)
 
         threading.Thread(target=worker, daemon=True).start()

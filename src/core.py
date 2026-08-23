@@ -1352,7 +1352,12 @@ def get_grids(api_key: str, game_id: int) -> list:
     dependency needed. Returns [] (not an error) if the game has no grids.
     """
     try:
-        data = _steamgriddb_api_get(api_key, f"/grids/game/{game_id}", {"mimes": "png"})
+        # The API wants the full MIME type ("image/png"), not a bare
+        # extension ("png") - the latter gets rejected outright with a 400
+        # "Invalid mime type", which get_profile_artwork's blanket
+        # exception handler then silently swallows into "no cover art"
+        # with zero indication of what actually went wrong.
+        data = _steamgriddb_api_get(api_key, f"/grids/game/{game_id}", {"mimes": "image/png"})
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return []
@@ -1389,7 +1394,7 @@ def _resolve_game_id(api_key: str, profile_name: str, override_id: Optional[int]
 
 
 def get_profile_artwork(
-    profile_id: str, profile_name: str, override_id: Optional[int] = None, force_refresh: bool = False
+    profile_id: str, profile_name: str, override_id: Optional[int] = None, force_refresh: bool = False, log_fn=None
 ) -> Optional[Path]:
     """
     Return a local file path to this profile's cached cover-art PNG,
@@ -1398,7 +1403,12 @@ def get_profile_artwork(
     Returns None if the integration is disabled, no API key is configured,
     nothing could be found, or any network/API error occurs along the way -
     callers should treat None as "no artwork available right now" and just
-    not show an image, not as something to surface as an error.
+    not show an image, not as something to surface as an error. If `log_fn`
+    is given, it's called with a one-line reason on the network/API-error
+    path specifically (not on "disabled"/"nothing found", which are normal,
+    expected outcomes) - without this, a real cause like a bad API key or a
+    malformed request just looked like "no cover art" with no way to tell
+    why (see the get_grids() mimes-parameter bug this caught).
 
     The on-disk cache entry is only trusted if it still matches what's
     being asked for now (the same override_id, or - with no override - the
@@ -1450,7 +1460,9 @@ def get_profile_artwork(
         }
         _save_steamgriddb_cache(cache)
         return cached_path
-    except Exception:
+    except Exception as e:
+        if log_fn is not None:
+            log_fn(f"Cover art fetch failed for '{profile_name}': {e}")
         return None
 
 
