@@ -132,6 +132,7 @@ class App:
         self.current_bindings = []  # editable plain-dict copies of the loaded profile's bindings
         self._test_channel_widgets = {}  # nickname -> {"level_var", "hold_var"}, rebuilt by _refresh_test_channels
         self._test_binding_widgets = {}  # binding id -> (hold_var, tokens), continuous bindings only
+        self._scrollable_canvases = []  # plain Tk Canvases from _build_scrollable_body(), re-themed alongside log_text/changelog_text
 
         self._build_ui()
         # Population order matters: profiles first (so the Test tab's profile
@@ -242,11 +243,55 @@ class App:
         for widget in (getattr(self, "log_text", None), getattr(self, "changelog_text", None)):
             if widget is not None:
                 widget.configure(**colors)
+        for canvas in self._scrollable_canvases:
+            canvas.configure(bg=colors["bg"])
 
     @staticmethod
     def _add_header(frame, text):
         """A bold title at the top of a tab, so each one reads like a distinct page rather than a bare form."""
         ttk.Label(frame, text=text, style="Header.TLabel").pack(fill="x", padx=PADX, pady=(PADY, 0))
+
+    def _build_scrollable_body(self, parent) -> ttk.Frame:
+        """
+        Wrap a tab's content area in a vertically-scrollable canvas and
+        return the inner ttk.Frame to build the tab's real content into -
+        used as a drop-in replacement for a plain `ttk.Frame(parent)` body.
+
+        Tabs with a lot of stacked form rows (Settings, in particular) can
+        end up taller than the window once every setting/section is laid
+        out; a bare grid/pack body just clips anything past the visible
+        area with no way to reach it, since the app's minsize allows a
+        window well short of that. The canvas is a raw Tk widget (not
+        ttk), so its background is set from _text_widget_colors() and kept
+        in sync by _restyle_text_widgets() on every theme toggle, same as
+        the log/changelog text boxes.
+        """
+        canvas = tk.Canvas(parent, highlightthickness=0, bg=self._text_widget_colors()["bg"])
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas, padding=(PADX, PADY))
+
+        body.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        body_window = canvas.create_window((0, 0), window=body, anchor="nw")
+        # Keep the embedded frame exactly as wide as the visible canvas, so
+        # its grid columns lay out against the real available width instead
+        # of shrinking to whatever the widest row happens to need.
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(body_window, width=e.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Mouse wheel scrolling only while the cursor is actually over this
+        # canvas - bind_all/unbind_all on hover keeps the wheel from being
+        # hijacked by whichever scrollable tab happened to build last.
+        def _on_wheel(event):
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+
+        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", _on_wheel))
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
+
+        self._scrollable_canvases.append(canvas)
+        return body
 
     # =============================================================== Cover art (SteamGridDB)
     # Shared by the Profiles and Test tabs, each of which keeps its own
@@ -1302,11 +1347,12 @@ class App:
         """
         frame = self.settings_tab
         self._add_header(frame, "Global settings")
-        # A separate grid-managed body frame, since the header above uses
-        # pack() - Tkinter doesn't allow mixing geometry managers on the
-        # same parent's direct children.
-        body = ttk.Frame(frame)
-        body.pack(fill="both", expand=True, padx=PADX, pady=PADY)
+        # Scrollable, not a bare grid-managed frame - between the global
+        # settings and the cover art section below, this tab is taller than
+        # the window's minsize allows, and a plain frame would just clip the
+        # cover art fields with no way to reach them (see
+        # _build_scrollable_body).
+        body = self._build_scrollable_body(frame)
 
         cfg = load_haptics_config()
         pad = {"padx": 6, "pady": 3}
