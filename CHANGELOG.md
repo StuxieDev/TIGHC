@@ -34,7 +34,9 @@ Project layout reorganized so it's no longer ambiguous which file to run.
   Desktop Mode defaults to Wayland as of SteamOS 3.8, which doesn't expose
   focused-window info (or support pynput's global input capture) to other
   apps by design; switch once with `steamos-session-select
-  plasma-x11-persistent`. See the new README section for details.
+  plasma-x11-persistent`. See the new [LINUX_GUIDE.md](LINUX_GUIDE.md) for
+  the full setup walkthrough (session switching, dependencies, Intiface
+  Central on Linux, troubleshooting), linked from the main README.
 - **Cover image picker**: the Profiles tab's "Choose image..." button lets
   you browse every cover-art image SteamGridDB has for a profile's game (not
   just the automatically-chosen top-voted one) and pin a specific one -

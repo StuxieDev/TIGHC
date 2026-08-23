@@ -53,23 +53,16 @@ full path (Windows users on OneDrive-synced folders sometimes need this).
 ## Linux / Steam Deck
 
 Windows is the primary target, but the engine also runs on Linux, including
-Steam Deck's **Desktop Mode** - not Game Mode, which doesn't run arbitrary
-Python GUIs. You'll need an **X11 session**, not the Wayland one Desktop
-Mode defaults to as of SteamOS 3.8: focused-window detection (for automatic
-profile switching) and the global keyboard/mouse capture this relies on
-both need X11 - Wayland's security model deliberately doesn't let one app
-see what window another has focused or listen to its input, which is
-exactly what a haptics-from-gameplay tool needs to do. Switch once with:
+Steam Deck's Desktop Mode - it needs an X11 session rather than Desktop
+Mode's default Wayland one, since focused-window detection and global
+input capture both require it. See **[LINUX_GUIDE.md](LINUX_GUIDE.md)** for
+the full setup walkthrough (switching sessions, installing dependencies,
+getting Intiface Central running, troubleshooting). Everything else in this
+README - profiles, the GUI, cover art - applies identically on Linux.
 
-```
-steamos-session-select plasma-x11-persistent
-```
-
-(back to Wayland any time with `steamos-session-select plasma-wayland-persistent`).
-From there, install Python/pip if needed and `pip install -r requirements.txt`
-as usual - this pulls in `python-xlib` automatically on Linux (Windows
-installs skip it; it's not a real dependency there). Everything else -
-profiles, the GUI, Intiface/Buttplug - works the same as on Windows.
+A pre-compiled executable (Linux and Windows) that could enable Steam Deck
+**Game Mode** support is in the works - see LINUX_GUIDE.md's note on this;
+it's a roadmap item, not something available yet.
 
 ## How it's organized
 
