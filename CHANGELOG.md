@@ -25,6 +25,20 @@ Project layout reorganized so it's no longer ambiguous which file to run.
   files into `configs/` (or just let the app regenerate them with defaults).
 - `gui.py` is unchanged as the primary way to run TIGHC (`python gui.py`).
 
+### Fixed
+- The 18+ age-gate dialog in `gui.py` could silently never appear on some
+  Windows/Tk setups: it ran without error and its event loop kept working,
+  but the window itself was never painted, so `python gui.py` looked like it
+  hung with nothing on screen. Cause: the dialog was `transient()` to the
+  main window while that window was still `withdraw()`n - a known Tk quirk
+  where a transient child of a hidden/unmapped owner can fail to map on some
+  window managers. `grab_set()` alone is enough to keep it modal, so the
+  `transient()` call was removed.
+- The age gate and main window now explicitly force themselves to the
+  foreground on startup (`lift()` + a brief topmost toggle + `focus_force()`),
+  since Windows doesn't always let a process launched from a terminal/IDE
+  steal focus for a freshly-created window on its own.
+
 ## [2.0.0]
 
 Renamed the project from "Minecraft-x-Lovense-intiface" / "Game Haptics" to

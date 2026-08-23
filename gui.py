@@ -1673,7 +1673,12 @@ def _show_age_gate(root) -> bool:
     dialog = tk.Toplevel(root)
     dialog.title("Age Verification")
     dialog.resizable(False, False)
-    dialog.transient(root)
+    # Deliberately NOT dialog.transient(root): root is still withdraw()n at
+    # this point, and marking a Toplevel transient to a withdrawn/unmapped
+    # master is a known Tk/Windows-window-manager quirk that can leave the
+    # transient window itself stuck unmapped (created, event loop running,
+    # but never actually painted) - grab_set() alone is enough to keep this
+    # modal without that dependency.
     dialog.grab_set()
 
     # A one-item dict rather than a plain bool so confirm()/decline() (each
@@ -1738,6 +1743,21 @@ def main():
     """Module entry point for `python gui.py`: show the age gate first, and only build/run the real App if it's accepted."""
     root = tk.Tk()
     root.withdraw()  # stay hidden until the age gate is cleared
+    # Apply the same sv_ttk look the main App uses (App._apply_style() will
+    # re-apply it once App is constructed below) so the age gate isn't stuck
+    # looking like a dated stock-Tk dialog while everything after it is
+    # reskinned.
+    sv_ttk.set_theme(DEFAULT_THEME, root)
+    # set_theme() fires a <<ThemeChanged>> virtual event that sv_ttk uses to
+    # (re)configure base widget colors (incl. plain TLabel foreground/
+    # background), but that event is handled asynchronously via Tk's event
+    # queue rather than inline - without flushing it here, the age gate's
+    # labels can get built and drawn before that handler runs, leaving them
+    # with stale (light-theme) text color on the new dark background.
+    # Buttons don't show this because their colors come from the theme's
+    # static definition, not that async callback.
+    root.update()
+    App._apply_custom_style_layer(root)
     if not _show_age_gate(root):
         root.destroy()
         return
