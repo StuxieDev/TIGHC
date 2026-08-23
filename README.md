@@ -38,8 +38,12 @@ full path (Windows users on OneDrive-synced folders sometimes need this).
 ```
 haptics.py                        # the engine (importable, also runs headless)
 gui.py                            # interactive configurator + launcher
+steamgriddb.py                    # optional cover-art fetching (see "Cover art" below)
 haptics_config.json               # global settings (connection, panic key, smoothing, ...)
 devices.json                      # remembers a nickname for each connected motor/capability
+steamgriddb_config.json           # your SteamGridDB API key - keep this private, don't share/commit it
+steamgriddb_cache.json            # resolved game ids / chosen art per profile, so repeat launches don't re-fetch
+artwork_cache/                    # downloaded cover-art images
 profiles/
   minecraft/                      # seeded automatically on first run
     keybinds.json                 # which keys/buttons do what, and how
@@ -135,6 +139,35 @@ Position-based outputs (e.g. stroker-style "move to position X") aren't
 supported - only continuous intensity-style outputs (vibrate, rotate,
 oscillate, constrict, etc.) fit the "roll a random level" model this script
 uses.
+
+## Cover art (SteamGridDB)
+
+The Profiles and Test tabs can show each profile's box art, fetched from
+[SteamGridDB](https://www.steamgriddb.com/). It's off by default:
+
+1. Get a free API key at
+   [steamgriddb.com/profile/preferences](https://www.steamgriddb.com/profile/preferences)
+   (there's a link to this right in the Settings tab).
+2. In the GUI's **Settings** tab, check "Show profile cover art", paste the
+   key in, and click "Save cover art settings" - this takes effect
+   immediately, no restart needed.
+3. Switching profiles in the Profiles or Test tab then fetches (and caches)
+   that game's top-voted cover art automatically.
+
+By default a profile's art is found by searching SteamGridDB for its display
+`name`, preferring a `verified` (SteamGridDB-curated) match. If that ever
+finds the wrong game - an ambiguous title, a very new release not yet
+well-indexed - use **"Change cover art..."** on the Profiles tab to search
+and pin an exact game id (stored as `steamgriddb_id` in that profile's
+`keybinds.json`; "Use automatic search instead" clears it again).
+
+Note: SteamGridDB's "official art" concept only really applies to logos and
+icons, not the cover-art grids shown here - grids don't have an official/
+fan-made distinction in their API, so this just uses whichever grid has the
+most community votes.
+
+`steamgriddb_config.json` holds your API key in plain text - treat it like a
+password (don't commit it or share the file).
 
 ## Global settings
 

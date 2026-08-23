@@ -74,6 +74,7 @@ class FloatRange:
             raise ValueError(f"Invalid range ({self.low}, {self.high}): low must be <= high")
 
     def roll(self) -> float:
+        """Pick a uniformly-random value between low and high (inclusive)."""
         return random.uniform(self.low, self.high)
 
 
@@ -106,6 +107,7 @@ class PulseSpec:
     duration: DurationRange
 
     def roll_duration(self) -> float:
+        """Convenience shortcut for `self.duration.roll()` - how long this pulse's next firing should last."""
         return self.duration.roll()
 
 
@@ -138,6 +140,14 @@ def _deep_merge(base: dict, overrides: dict) -> dict:
 
 
 def load_config() -> dict:
+    """
+    Load haptics_config.json, creating it with DEFAULT_CONFIG if it doesn't
+    exist yet. If it exists but only partially overrides the defaults (e.g.
+    the user only changed `intiface_ws`), the rest is filled in via
+    _deep_merge() so every key the rest of this module expects is always
+    present. Falls back to the in-memory DEFAULT_CONFIG (without touching
+    disk) if the file can't be written or read.
+    """
     if not CONFIG_PATH.exists():
         try:
             CONFIG_PATH.write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
@@ -190,10 +200,13 @@ DEVICES_PATH = Path(__file__).with_name("devices.json")
 
 
 def _slugify(text: str) -> str:
+    """Turn arbitrary text (a device name, a profile display name, ...) into a lowercase_with_underscores id."""
+    # Replace every non-alphanumeric character with "_", then collapse runs
+    # of underscores and trim the ends so "Lovense Edge v2!" -> "lovense_edge_v2".
     slug = "".join(c.lower() if c.isalnum() else "_" for c in text).strip("_")
     while "__" in slug:
         slug = slug.replace("__", "_")
-    return slug or "device"
+    return slug or "device"  # never return an empty string - callers use this as a dict key / filename
 
 
 # Every output capability a feature exposes becomes its own channel, so a
@@ -217,6 +230,13 @@ SUPPORTED_OUTPUT_TYPES = (
 
 
 def load_device_registry() -> list:
+    """
+    Read devices.json's "channels" list: dicts with device_name,
+    feature_index, output_type, description, and nickname. Returns an empty
+    list (never raises) if the file is missing, unreadable, or not valid
+    JSON - a fresh install or a corrupted file just means every channel gets
+    treated as brand-new and re-registered with an auto-generated nickname.
+    """
     if not DEVICES_PATH.exists():
         return []
     try:
@@ -227,6 +247,7 @@ def load_device_registry() -> list:
 
 
 def save_device_registry(registry: list):
+    """Write the full channel registry back to devices.json, overwriting whatever was there."""
     DEVICES_PATH.write_text(json.dumps({"channels": registry}, indent=2), encoding="utf-8")
 
 
@@ -380,13 +401,28 @@ class Profile:
     pulse_bindings: dict  # key/button token -> PulseBinding
     background: VibeRange
     bindings: list  # raw parsed bindings, in file order, for the startup banner
+    # Optional, purely cosmetic: pins this profile to an exact SteamGridDB
+    # game id for cover-art lookup (see steamgriddb.py), bypassing the
+    # by-name search that could otherwise match the wrong game (e.g. a
+    # sequel or spin-off with a similar title). None means "search by name".
+    steamgriddb_id: Optional[int] = None
 
     def matches(self, window_title_lower: str) -> bool:
+        """True if this profile's window_titles has a substring match in the (already-lowercased) window title."""
         return any(t in window_title_lower for t in self.window_titles)
 
     def range_for(self, channel_nickname: str, pressed_keys: set) -> VibeRange:
-        # Walk continuous bindings in priority order; the first one that both
-        # targets this channel and has a currently-pressed token wins.
+        """
+        Resolve the intensity range a specific channel should currently be
+        driven at, given which keys/buttons are held.
+
+        Walks `continuous` in priority order (the order _load_profile()
+        already sorted them into); the first binding that both (a) targets
+        this channel (its `devices` is None/"all", or contains this
+        nickname) and (b) has at least one of its keys currently in
+        `pressed_keys` wins. If nothing matches - nothing relevant is held -
+        the profile's idle `background` range is returned instead.
+        """
         for binding in self.continuous:
             if binding.devices is not None and channel_nickname not in binding.devices:
                 continue
@@ -396,6 +432,10 @@ class Profile:
 
 
 def _seed_default_profile():
+    """Write profiles/minecraft/{keybinds,ranges}.json from the DEFAULT_MINECRAFT_* dicts above."""
+    # Only ever called when PROFILES_DIR doesn't exist yet (see
+    # load_profiles()), so this always creates a brand-new folder - it's not
+    # meant to "reset" an existing, possibly user-edited minecraft profile.
     profile_dir = PROFILES_DIR / "minecraft"
     profile_dir.mkdir(parents=True, exist_ok=True)
     (profile_dir / "keybinds.json").write_text(json.dumps(DEFAULT_MINECRAFT_KEYBINDS, indent=2), encoding="utf-8")
@@ -404,6 +444,14 @@ def _seed_default_profile():
 
 
 def _parse_devices_field(binding: dict) -> Optional[frozenset]:
+    """
+    Parse a binding's "devices" list into the internal target representation:
+    `None` means "all channels" (also the default when the field is omitted
+    entirely, for backward compatibility with profiles written before this
+    field existed); otherwise a frozenset of lowercased nicknames. Raises
+    ValueError if present but not a non-empty list - this is a structural
+    config error, not something to silently paper over.
+    """
     devices_field = binding.get("devices", ["all"])
     if not isinstance(devices_field, list) or not devices_field:
         raise ValueError(f"binding '{binding.get('id')}' devices must be a non-empty list")
@@ -414,6 +462,14 @@ def _parse_devices_field(binding: dict) -> Optional[frozenset]:
 
 
 def _load_profile(profile_dir: Path) -> Profile:
+    """
+    Load and validate one profile folder (keybinds.json + ranges.json) into
+    a Profile. Raises ValueError with a human-readable message for any
+    structural problem (missing files, bad mode, missing ranges entry, an
+    invalid range, etc.) - callers are expected to let this propagate rather
+    than silently skip a broken profile, so mistakes surface immediately
+    instead of causing quietly-wrong output later.
+    """
     keybinds_path = profile_dir / "keybinds.json"
     ranges_path = profile_dir / "ranges.json"
     if not keybinds_path.exists() or not ranges_path.exists():
@@ -430,10 +486,14 @@ def _load_profile(profile_dir: Path) -> Profile:
     priority = keybinds.get("priority", [])
 
     seen_ids = set()
-    parsed_bindings = []
-    continuous_entries = {}  # id -> ContinuousBinding
-    pulse_bindings = {}  # key token -> PulseBinding
+    parsed_bindings = []  # every binding, in file order, disabled ones included - used only for the banner/GUI display
+    continuous_entries = {}  # id -> ContinuousBinding, enabled continuous bindings only
+    pulse_bindings = {}  # key/button token -> PulseBinding, enabled pulse bindings only (a token can map to only one)
 
+    # Single pass over every declared binding: validate its shape, look up
+    # its numbers in ranges.json, and - if it's enabled - file it into
+    # whichever runtime structure (continuous_entries or pulse_bindings)
+    # HapticsController actually consults during play.
     for binding in keybinds.get("bindings", []):
         bid = binding["id"]
         if bid in seen_ids:
@@ -453,6 +513,9 @@ def _load_profile(profile_dir: Path) -> Profile:
         enabled = binding.get("enabled", True)
         target_devices = _parse_devices_field(binding)
 
+        # The binding's own vibe/duration numbers live in ranges.json, keyed
+        # by the same id - keeping "what triggers it" (keybinds.json)
+        # separate from "how strong/long" (ranges.json).
         range_section = ranges.get(bid)
         if range_section is None:
             raise ValueError(f"binding '{bid}' has no matching entry in ranges.json")
@@ -477,12 +540,16 @@ def _load_profile(profile_dir: Path) -> Profile:
         )
 
         if not enabled:
-            continue
+            continue  # still recorded in parsed_bindings above (for display), just excluded from runtime lookups
         if mode == "continuous":
             continuous_entries[bid] = ContinuousBinding(
                 tokens=frozenset(keys), vibe=vibe, id=bid, devices=target_devices
             )
         else:
+            # Every key/button this pulse binding lists triggers the same
+            # PulseSpec+devices - e.g. switch_item's "1".."9" and "scroll"
+            # all share one entry, keyed separately per token for fast
+            # lookup in on_key_press()/on_mouse_scroll().
             spec = PulseSpec(vibe, duration)
             pulse_binding = PulseBinding(spec=spec, devices=target_devices)
             for k in keys:
@@ -493,6 +560,10 @@ def _load_profile(profile_dir: Path) -> Profile:
         raise ValueError("ranges.json needs a 'background' entry with a 'vibe' range")
     background = VibeRange(*background_section["vibe"])
 
+    # Order continuous bindings by `priority` first (only ids that are
+    # actually continuous+enabled matter here), then append anything left
+    # over in whatever order it was declared - see Profile.range_for() for
+    # how this ordering is used (first match wins).
     ordered_ids = [i for i in priority if i in continuous_entries]
     ordered_ids += [i for i in continuous_entries if i not in ordered_ids]
     continuous = [continuous_entries[i] for i in ordered_ids]
@@ -505,10 +576,22 @@ def _load_profile(profile_dir: Path) -> Profile:
         pulse_bindings=pulse_bindings,
         background=background,
         bindings=parsed_bindings,
+        steamgriddb_id=keybinds.get("steamgriddb_id"),
     )
 
 
 def load_profiles() -> dict:
+    """
+    Discover and load every profile folder under profiles/ into a
+    dict keyed by profile id (the folder name), in alphabetical order.
+
+    Seeds profiles/minecraft/ first if the whole profiles/ directory doesn't
+    exist yet (a brand-new install). Any folder that fails to load raises
+    RuntimeError immediately (wrapping the underlying ValueError/OSError/
+    KeyError with the offending folder's name) rather than being silently
+    skipped - a typo in one profile shouldn't produce a program that
+    silently starts with fewer profiles than the user configured.
+    """
     if not PROFILES_DIR.exists():
         try:
             _seed_default_profile()
@@ -531,14 +614,23 @@ def load_profiles() -> dict:
     return profiles
 
 
+# Loaded once at import time. haptics.py's own CLI entry point (main(), at
+# the bottom of this file) uses this module-level dict directly; gui.py
+# instead makes its own copy via load_profiles() so it can freely mutate its
+# own controller's profile set (add/edit/reload) without touching this one.
 PROFILES = load_profiles()
 
 
 def normalize_key(key) -> str:
-    # pynput reports letter/number keys as "'a'" and special keys as
-    # "Key.space" / "Key.shift_l" / "Key.ctrl_r" - strip quotes, drop the
-    # "key." prefix, and drop left/right suffixes so "Key.shift_l" and
-    # "Key.shift_r" both normalize to the same "shift" used in profile configs.
+    """
+    Convert a pynput key object into the plain lowercase token used
+    throughout this module and in profile JSON (e.g. "w", "space", "shift").
+
+    pynput reports letter/number keys as "'a'" and special keys as
+    "Key.space" / "Key.shift_l" / "Key.ctrl_r" - strip quotes, drop the
+    "key." prefix, and drop left/right suffixes so "Key.shift_l" and
+    "Key.shift_r" both normalize to the same "shift" used in profile configs.
+    """
     raw = str(key).strip("'\"").lower()
     if raw.startswith("key."):
         raw = raw[len("key."):]
@@ -567,6 +659,7 @@ class InputState:
     pressed_keys: set = field(default_factory=set)
 
     def set_held(self, token: str, held: bool):
+        """Add or remove a token from pressed_keys - used for mouse buttons, which have no press/release keystrokes."""
         if held:
             self.pressed_keys.add(token)
         else:
@@ -595,6 +688,15 @@ class HapticsController:
     """Owns the buttplug connection, per-channel output state, active profile, and input listeners."""
 
     def __init__(self, ws_url: str, profiles: dict, log_fn=print):
+        """
+        `profiles` is a dict of id -> Profile (from load_profiles()) that
+        this controller reads from every tick; the GUI mutates its own
+        controller's copy in place (add/edit/reload profiles) rather than
+        replacing the dict wholesale, so background_loop() always sees
+        the latest state without needing to be told about it explicitly.
+        `log_fn` defaults to print() for headless use; gui.py overrides it
+        with a callback that pushes into a thread-safe queue instead.
+        """
         self.ws_url = ws_url
         self.profiles = profiles
         self.log = log_fn  # swap in a GUI-friendly callback instead of print(); see gui.py
@@ -620,6 +722,12 @@ class HapticsController:
 
     # ---------------------------------------------------------------- setup
     async def connect(self) -> bool:
+        """
+        Open a fresh connection to Intiface and do an initial device scan.
+        Returns True if at least one usable channel was found, False on a
+        connection failure or an empty scan (both are logged via self.log,
+        not raised - callers just check the return value).
+        """
         # Both the headless run() path and the GUI reach connect() first, so
         # this is the one place that's guaranteed to run on the loop that
         # should service schedule()'s cross-thread coroutine handoff.
@@ -637,7 +745,13 @@ class HapticsController:
         return await self.scan()
 
     async def scan(self) -> bool:
-        """(Re)scan for devices on the existing connection and rebuild channels."""
+        """
+        (Re)scan for devices on the existing connection and rebuild
+        self.channels from whatever's found. If there's no existing
+        connection yet, this just delegates to connect() instead (so GUI
+        code can always call scan() without checking connection state
+        first). Returns True if at least one channel exists afterward.
+        """
         if not self.client:
             return await self.connect()
 
@@ -656,6 +770,13 @@ class HapticsController:
         return False
 
     def _build_channels(self, devices: list) -> dict:
+        """
+        Turn a list of connected buttplug devices into {nickname: DeviceChannel},
+        one entry per (device, feature, output type) combination found in
+        SUPPORTED_OUTPUT_TYPES. Nicknames are resolved (and any new ones
+        persisted to devices.json) via resolve_channel_nicknames(), so a
+        channel keeps the same nickname across repeated scans/reconnects.
+        """
         entries = []  # (device_name, feature_index, output_type_value, description, feature)
         for device in devices:
             for feature in device.features.values():
@@ -681,6 +802,12 @@ class HapticsController:
         return channels
 
     async def _attempt_reconnect(self):
+        """
+        Called by background_loop() once too many consecutive output sends
+        have failed (see FAILURE_RECONNECT_THRESHOLD) - drops the current
+        client (if any) and tries connect() again from scratch. Doesn't
+        raise on failure; just logs and lets the next threshold trip retry.
+        """
         self.log("Lost contact with device(s) - attempting to reconnect...")
         self._consecutive_send_failures = 0
         if self.client:
@@ -695,14 +822,27 @@ class HapticsController:
 
     # ----------------------------------------------------------- profiles
     def _match_profile(self, window_title_lower: str) -> Optional[Profile]:
+        """Return the first loaded profile whose window_titles matches, or None if nothing matches."""
+        # Profiles are matched in self.profiles' insertion order (i.e.
+        # alphabetical by folder name, per load_profiles()) - if two
+        # profiles' window_titles could both match the same window, the
+        # alphabetically-first one wins.
         for profile in self.profiles.values():
             if profile.matches(window_title_lower):
                 return profile
         return None
 
     def _update_active_profile(self):
-        # A pinned test profile always wins over real window matching - see
-        # test_profile_override above.
+        """
+        Re-evaluate which profile should be "active" and update
+        self.active_profile if it changed. Called once per background_loop()
+        tick. A pinned test_profile_override always wins over real window
+        matching (see its definition in __init__) so the GUI's Test tab can
+        force a specific profile active regardless of what's focused.
+        Switching profiles (including to/from None) always clears
+        pressed_keys, since held tokens from the old profile's keybinds
+        wouldn't mean anything under a different one anyway.
+        """
         if self.test_profile_override is not None:
             matched = self.test_profile_override
         else:
@@ -719,6 +859,7 @@ class HapticsController:
 
     # ------------------------------------------------------- channel targets
     def _channels_for(self, target: Optional[frozenset]) -> list:
+        """Resolve a binding's `devices` target (None = "all") to the actual list of currently-connected DeviceChannels."""
         if target is None:
             return list(self.channels.values())
         return [c for nickname, c in self.channels.items() if nickname in target]
@@ -726,18 +867,32 @@ class HapticsController:
     # -------------------------------------------------------------- output
     def roll(self, vibe_range: VibeRange) -> float:
         """Roll a level from the given range, unless master randomization overrides it."""
+        # MASTER_RANDOM_ENABLED is a global "ignore every per-binding range
+        # and just roll from one fixed band instead" override, set in
+        # haptics_config.json - useful for testing or for players who want
+        # pure randomness regardless of what they're doing in-game.
         active_range = MASTER_VIBE_RANGE if MASTER_RANDOM_ENABLED else vibe_range
         return active_range.roll()
 
     def _smooth(self, channel: DeviceChannel, target: float) -> float:
-        # Exponential smoothing: closes part of the gap to the target each
-        # tick instead of jumping straight there, so idle/continuous levels
-        # feel like they drift rather than strobe every 180ms.
+        """Exponentially smooth a channel's output level toward `target`, or return `target` unchanged if smoothing is off."""
+        # Closes part of the gap to the target each tick instead of jumping
+        # straight there, so idle/continuous levels feel like they drift
+        # rather than strobe every 180ms. Each channel keeps its own
+        # last_level, so smoothing is independent per channel.
         if not ENABLE_SMOOTHING:
             return target
         return channel.last_level + (target - channel.last_level) * SMOOTHING_FACTOR
 
     async def _set_channel_level(self, channel: DeviceChannel, level: float):
+        """
+        Send `level` to one channel's underlying feature, update its
+        last_level, and track the send's success/failure toward the
+        auto-reconnect threshold. This is the single place every code path
+        (background_loop, pulses, panic, GUI test controls) funnels through
+        to actually talk to a device - so failure counting and the panic
+        override only need to live in one spot.
+        """
         # Panic always wins, even over a manually-held test level.
         if time.time() < self._panic_until:
             level = 0.0
@@ -757,7 +912,17 @@ class HapticsController:
         channel.last_level = level
 
     async def _do_pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset]):
-        """Shared implementation behind pulse() and test_pulse() - see those for the difference."""
+        """
+        Shared implementation behind pulse() and test_pulse() - see those
+        for the difference (whether an active profile is required).
+
+        `target` is a binding's resolved devices field (None = all
+        channels, else a frozenset of nicknames). One random level is
+        rolled from `vibe_range` and sent to every currently-free channel in
+        the target set simultaneously; channels already mid-pulse or still
+        in another pulse's cooldown window are skipped for this trigger
+        rather than queued or made to wait.
+        """
         now = time.time()
         # Only one pulse "slot" per channel at a time - a channel already
         # mid-pulse (or in cooldown) is simply skipped for this trigger.
@@ -807,6 +972,18 @@ class HapticsController:
         self.log("PANIC - haptics forced off.")
 
     async def background_loop(self):
+        """
+        The main output loop: re-evaluates the active profile and every
+        channel's target level once every BACKGROUND_TICK seconds, for as
+        long as self.running is True. Started by start_engine() and left
+        running as an asyncio.Task; stop_engine() cancels it.
+
+        Each tick, per channel: if a pulse or a manual test hold currently
+        "owns" that channel, it's left alone; otherwise its level is
+        resolved from the active profile's continuous bindings (or the
+        idle background range if nothing's held), smoothed, and sent. This
+        is also where the auto-reconnect threshold is checked.
+        """
         while self.running:
             self._update_active_profile()
 
@@ -840,12 +1017,21 @@ class HapticsController:
 
     # --------------------------------------------------------------- input
     def schedule(self, coro):
-        # pynput listeners run on their own thread, not the asyncio loop -
-        # this hands the coroutine back over to the loop thread safely.
+        """
+        Hand a coroutine off to the asyncio loop from any thread.
+
+        pynput's keyboard/mouse listeners each run on their own OS thread,
+        not the asyncio event loop, so they can't just `await` something -
+        every on_key_press()/on_mouse_click()/on_mouse_scroll() callback
+        below calls this instead of awaiting directly. No-ops once
+        self.running is False (e.g. mid-shutdown), so a straggling input
+        event can't schedule work against a loop that's going away.
+        """
         if self.running and self.loop:
             asyncio.run_coroutine_threadsafe(coro, self.loop)
 
     def on_key_press(self, key):
+        """pynput callback: track the key as held, handle the panic key, and fire a pulse if it's a pulse-mode binding."""
         try:
             k = normalize_key(key)
         except Exception:
@@ -865,6 +1051,7 @@ class HapticsController:
             self.schedule(self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices))
 
     def on_key_release(self, key):
+        """pynput callback: stop tracking the key as held."""
         try:
             k = normalize_key(key)
         except Exception:
@@ -872,6 +1059,15 @@ class HapticsController:
         self.input_state.pressed_keys.discard(k)
 
     def on_mouse_click(self, _x, _y, button, pressed):
+        """
+        pynput callback for left/right/middle mouse button press+release.
+        Mouse buttons have no natural "held" concept the way keys do, so
+        this both tracks the button as held (for continuous bindings, via
+        set_held) and fires a pulse on press (for pulse bindings) - whether
+        either actually does anything depends on how the active profile
+        configured that button. `_x`/`_y` (cursor position) are unused but
+        required by pynput's callback signature.
+        """
         token = {
             mouse.Button.left: "mouse_left",
             mouse.Button.right: "mouse_right",
@@ -889,6 +1085,13 @@ class HapticsController:
                 )
 
     def on_mouse_scroll(self, _x, _y, _dx, _dy):
+        """
+        pynput callback for the scroll wheel. Scrolling has no "held" state
+        (it's a series of discrete tick events), so it can only ever be
+        bound as a pulse - see the "scroll" validation in _load_profile().
+        `_x`/`_y`/`_dx`/`_dy` (position and scroll delta) are unused but
+        required by pynput's callback signature.
+        """
         if self.active_profile is None:
             return
         pulse_binding = self.active_profile.pulse_bindings.get("scroll")
@@ -900,12 +1103,14 @@ class HapticsController:
     # ----------------------------------------------------------------- run
     @staticmethod
     def _devices_label(devices: Optional[frozenset]) -> str:
+        """Render a binding's resolved devices target as a display string for the startup banner."""
         return "all" if devices is None else ",".join(sorted(devices))
 
     @classmethod
     def _binding_line(
         cls, label: str, enabled: bool, vibe_range: VibeRange, duration_range: Optional[DurationRange], devices: Optional[frozenset]
     ) -> str:
+        """Format one banner line for a binding (or the idle/background level, passed with duration_range=None)."""
         if not enabled:
             return f"  - {label:<32} -> disabled"
         target = "" if devices is None else f" [{cls._devices_label(devices)}]"
@@ -915,9 +1120,18 @@ class HapticsController:
 
     @staticmethod
     def _status_line(label: str, value: str) -> str:
+        """Format one banner line for a global on/off-style status (panic key, auto-reconnect, smoothing)."""
         return f"- {label:<24} -> {value}"
 
     def print_banner(self):
+        """
+        Log a human-readable summary of the current setup right after the
+        engine starts: every loaded profile's bindings and their resolved
+        ranges/devices, which channels are connected, and the global
+        settings in effect. Purely informational - nothing here affects
+        behavior, it's just what a headless run prints to the console (or
+        what the GUI's Run tab log shows after clicking Start).
+        """
         self.log(f"{PROJECT_SHORT_NAME} v{__version__} active - {PROJECT_NAME}")
         if MASTER_RANDOM_ENABLED:
             self.log(f"- MASTER RANDOM ON        -> every binding rolls {MASTER_VIBE_RANGE} (per-binding ranges ignored)")
@@ -1018,6 +1232,7 @@ def _confirm_age() -> bool:
 
 
 async def main():
+    """Module entry point for `python haptics.py`: age gate, then build a controller from the module-level config/profiles and run it."""
     if not _confirm_age():
         print("Age not confirmed - exiting.")
         return

@@ -36,6 +36,12 @@ multi-game haptics controller.
 - An 18+ age-verification gate, since this project controls adult haptic
   devices: a confirmation dialog before the GUI opens (`gui.py`), and a typed
   confirmation prompt before the headless engine starts (`haptics.py`).
+- A modern GUI look via the `sv_ttk` theme (new dependency), with a light/dark
+  toggle.
+- Optional per-profile cover art fetched from SteamGridDB (`steamgriddb.py`),
+  shown on the Profiles and Test tabs once an API key is set in Settings.
+  Profiles can pin an exact SteamGridDB game id (`steamgriddb_id` in
+  `keybinds.json`) when the automatic name search picks the wrong game.
 
 ### Changed
 - Renamed `minecraft.py` to `haptics.py` and generalized it into a reusable

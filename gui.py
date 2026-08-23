@@ -49,8 +49,10 @@ from haptics import (
     load_profiles,
     save_device_registry,
 )
+import steamgriddb
 
 CHANGELOG_PATH = Path(__file__).with_name("CHANGELOG.md")
+ARTWORK_THUMBNAIL_WIDTH = 140  # target width in pixels; see _load_thumbnail_image
 
 BINDING_COLUMNS = ("id", "keys", "mode", "devices", "vibe", "duration", "enabled")
 BINDING_HEADERS = {
@@ -76,20 +78,46 @@ class AsyncBridge:
     """Runs an asyncio event loop on a background thread so the Tk main loop never blocks on I/O."""
 
     def __init__(self):
+        """Create a fresh event loop and immediately start a daemon thread running it forever (see _run)."""
+        # A fresh event loop (not the default one, since there isn't one on
+        # a non-main thread) that self._run() will drive for the lifetime
+        # of the app.
         self.loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self):
+        """Thread target: make `self.loop` this thread's event loop and run it forever (until App._on_close stops it)."""
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
 
     def submit(self, coro):
+        """
+        Schedule a coroutine to run on the bridge's loop from any thread
+        (typically the Tk main thread, from a button handler) and return a
+        concurrent.futures.Future for it. Callers attach a callback with
+        `.add_done_callback(...)` and marshal back to the Tk thread via
+        `root.after(0, ...)` inside it, rather than blocking on `.result()`
+        - see e.g. App._on_connect_clicked for the pattern used everywhere.
+        """
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
 
 class App:
+    """
+    The whole GUI: builds every tab, owns the one HapticsController and
+    AsyncBridge for the app's lifetime, and bridges between Tkinter's
+    single-threaded event loop and the controller's asyncio coroutines.
+    """
+
     def __init__(self, root):
+        """
+        Apply styling, create the controller/bridge, build every tab, then
+        populate them from whatever's already on disk (profiles, devices
+        registry, config). `root` is expected to already be a real,
+        visible Tk() - the age gate in main() handles showing/hiding it
+        before this ever runs.
+        """
         self.root = root
         root.title(f"{PROJECT_SHORT_NAME} - {PROJECT_NAME} (v{__version__})")
         root.geometry("1040x720")
@@ -155,10 +183,12 @@ class App:
         self._restyle_text_widgets()
 
     def _theme_toggle_label(self):
+        """Button text names the theme you'd switch *to*, not the one currently active."""
         return "Switch to light mode" if self.theme == "dark" else "Switch to dark mode"
 
     # =============================================================== UI shell
     def _build_ui(self):
+        """Construct the top bar (theme toggle) and the tab notebook, then delegate to each tab's own _build_*_tab method."""
         # A slim top bar sits above the tab notebook, outside it, so the
         # theme toggle is reachable from every tab instead of duplicated
         # into each one.
@@ -219,8 +249,45 @@ class App:
         """A bold title at the top of a tab, so each one reads like a distinct page rather than a bare form."""
         ttk.Label(frame, text=text, style="Header.TLabel").pack(fill="x", padx=PADX, pady=(PADY, 0))
 
+    # =============================================================== Cover art (SteamGridDB)
+    # Shared by the Profiles and Test tabs, each of which keeps its own
+    # thumbnail Label + PhotoImage reference (see _refresh_profile_artwork /
+    # _refresh_test_artwork) but funnels through this one fetch/load path.
+    @staticmethod
+    def _load_thumbnail_image(path):
+        """
+        Load a cached artwork PNG into a tk.PhotoImage, downscaled to
+        roughly ARTWORK_THUMBNAIL_WIDTH wide. tk.PhotoImage only supports
+        PNG/GIF/PPM natively (no Pillow dependency needed, since
+        steamgriddb.py only ever downloads PNGs) and can only shrink by
+        integer factors via subsample() - fine for a small thumbnail, if
+        slightly cruder than a real resize.
+        """
+        image = tk.PhotoImage(file=str(path))
+        width = image.width()
+        if width > ARTWORK_THUMBNAIL_WIDTH:
+            factor = max(1, width // ARTWORK_THUMBNAIL_WIDTH)
+            image = image.subsample(factor, factor)
+        return image
+
+    def _fetch_artwork_async(self, profile_id, profile_name, override_id, on_done, force_refresh=False):
+        """
+        Fetch (or load from cache) one profile's artwork on a daemon
+        thread - steamgriddb.get_profile_artwork() does blocking network
+        I/O, which must not run on the Tk main thread - then hand the
+        resulting Path (or None) back to `on_done` via root.after so it's
+        safe to touch widgets from there.
+        """
+        def worker():
+            """Runs on the background thread: do the blocking fetch, then hand off to on_done via root.after (thread-safe)."""
+            path = steamgriddb.get_profile_artwork(profile_id, profile_name, override_id, force_refresh=force_refresh)
+            self.root.after(0, on_done, path)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     # =============================================================== Devices tab
     def _build_devices_tab(self):
+        """Build the Devices tab: connection controls, the channel list, and the rename button."""
         frame = self.devices_tab
         self._add_header(frame, "Devices")
 
@@ -257,6 +324,13 @@ class App:
         ).pack(side="left", padx=12)
 
     def _on_connect_clicked(self):
+        """
+        "Connect + Scan" button handler. Disables the button, submits
+        controller.connect() to the async bridge, and re-enables it once
+        the result comes back via _after_connect - the button itself is
+        the only thing guarding against a second click firing a second
+        connection attempt while the first is still in flight.
+        """
         self.controller.ws_url = self.ws_url_var.get().strip()
         self.connect_btn.config(state="disabled")
         self._enqueue_log(f"Connecting to {self.controller.ws_url} ...")
@@ -264,6 +338,12 @@ class App:
         fut.add_done_callback(lambda f: self.root.after(0, self._after_connect, f))
 
     def _after_connect(self, fut):
+        """
+        Runs on the Tk main thread (via root.after) once connect() finishes.
+        `fut` is the concurrent.futures.Future from AsyncBridge.submit();
+        `.result()` re-raises whatever exception the coroutine raised, if
+        any, which is caught here and logged rather than crashing the GUI.
+        """
         self.connect_btn.config(state="normal")
         try:
             fut.result()
@@ -272,11 +352,13 @@ class App:
         self._refresh_channels_tree()
 
     def _on_rescan_clicked(self):
+        """"Rescan" button handler - same async pattern as _on_connect_clicked, but calls controller.scan() instead."""
         self.rescan_btn.config(state="disabled")
         fut = self.bridge.submit(self.controller.scan())
         fut.add_done_callback(lambda f: self.root.after(0, self._after_rescan, f))
 
     def _after_rescan(self, fut):
+        """Runs on the Tk main thread once scan() finishes - see _after_connect for the pattern."""
         self.rescan_btn.config(state="normal")
         try:
             fut.result()
@@ -285,6 +367,7 @@ class App:
         self._refresh_channels_tree()
 
     def _refresh_channels_tree(self):
+        """Rebuild the Devices tab's channel list from self.controller.channels - call after anything that changes it."""
         self.devices_tree.delete(*self.devices_tree.get_children())
         for nickname, channel in sorted(self.controller.channels.items()):
             self.devices_tree.insert(
@@ -296,6 +379,16 @@ class App:
         self._refresh_test_channels()
 
     def _on_rename_channel(self):
+        """
+        "Rename nickname..." button handler: prompts for a new nickname for
+        the selected channel, updates its entry in devices.json (matched by
+        device_name+feature_index+output_type, not by the old nickname, so
+        this works even if devices.json's copy is already out of sync),
+        renames the live DeviceChannel in memory, and warns - without
+        blocking - if any saved profile binding still references the old
+        nickname (those bindings simply stop targeting this channel until
+        the user updates them; nothing here rewrites profile JSON).
+        """
         selection = self.devices_tree.selection()
         if not selection:
             messagebox.showinfo("Rename", "Select a channel first.")
@@ -353,6 +446,7 @@ class App:
             )
 
     def _find_nickname_references(self, nickname):
+        """Return ["Profile Name: binding_id", ...] for every currently-loaded binding whose devices list includes `nickname`."""
         references = []
         for profile in self.controller.profiles.values():
             for binding in profile.bindings:
@@ -363,6 +457,14 @@ class App:
 
     # =============================================================== Profiles tab
     def _build_profiles_tab(self):
+        """
+        Build the Profiles tab: a profile picker, an editable form for the
+        profile-level settings (name/window match/priority/idle range), and
+        a bindings table with add/edit/remove buttons. The form and table
+        only hold a working copy of whatever profile is selected (see
+        self.current_bindings) - nothing here writes to disk until "Save
+        profile" is clicked (_on_save_profile).
+        """
         frame = self.profiles_tab
         self._add_header(frame, "Profiles")
 
@@ -399,6 +501,16 @@ class App:
 
         ttk.Button(meta, text="Save profile", command=self._on_save_profile).grid(row=4, column=1, sticky="w", pady=6)
 
+        # Cover art thumbnail sits in its own column, spanning every row
+        # above so it reads as "attached to this profile" rather than just
+        # another form field.
+        artwork_frame = ttk.Frame(meta)
+        artwork_frame.grid(row=0, column=2, rowspan=5, sticky="n", padx=(16, 4))
+        self.profile_artwork_label = ttk.Label(artwork_frame, text="(no cover art)", style="Hint.TLabel")
+        self.profile_artwork_label.pack()
+        ttk.Button(artwork_frame, text="Change cover art...", command=self._on_change_artwork).pack(pady=(6, 0))
+        self._profile_artwork_image = None  # keep a reference - PhotoImage is garbage-collected otherwise
+
         bindings_frame = ttk.LabelFrame(frame, text="Bindings")
         bindings_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         self.bindings_tree = ttk.Treeview(bindings_frame, columns=BINDING_COLUMNS, show="headings", selectmode="browse")
@@ -417,12 +529,20 @@ class App:
         ).pack(side="left", padx=12)
 
     def _refresh_profile_list(self):
+        """
+        Repopulate both the Profiles tab's and the Test tab's profile
+        dropdowns from self.controller.profiles, keeping the current
+        selection if it's still valid (falling back to the alphabetically
+        first profile otherwise). Called after anything that adds, removes,
+        or reloads profiles.
+        """
         ids = sorted(self.controller.profiles.keys())
         self.profile_combo["values"] = ids
         self.test_profile_combo["values"] = ids
         if not ids:
             self.current_profile_id = None
             self._refresh_test_bindings()
+            self._refresh_test_artwork()
             return
         if self.current_profile_id not in ids:
             self.current_profile_id = ids[0]
@@ -431,9 +551,17 @@ class App:
         if self.test_profile_combo.get() not in ids:
             self.test_profile_combo.set(self.current_profile_id)
         self._refresh_test_bindings()
+        self._refresh_test_artwork()
 
     @staticmethod
     def _binding_to_editable(binding: dict) -> dict:
+        """
+        Convert one of Profile.bindings' parsed dicts (which hold VibeRange/
+        DurationRange/frozenset objects, as produced by haptics._load_profile)
+        into a plain, JSON-friendly, Tkinter-Var-friendly dict that the
+        bindings table and the add/edit dialog can work with directly.
+        The reverse conversion happens in _compose_profile_files().
+        """
         return {
             "id": binding["id"],
             "keys": list(binding["keys"]),
@@ -447,6 +575,14 @@ class App:
         }
 
     def _load_profile_into_form(self, profile_id):
+        """
+        Populate the Profiles tab's form fields and bindings table from
+        `self.controller.profiles[profile_id]`, replacing whatever unsaved
+        edits were in the form for the previously-selected profile. This is
+        also how a save re-syncs the form: _on_save_profile() calls back
+        into this after writing+reloading, so the form always reflects the
+        canonical on-disk/parsed state rather than raw user input.
+        """
         if not profile_id or profile_id not in self.controller.profiles:
             return
         self.current_profile_id = profile_id
@@ -458,8 +594,41 @@ class App:
         self.profile_bg_high_var.set(f"{profile.background.high:.2f}")
         self.current_bindings = [self._binding_to_editable(b) for b in profile.bindings]
         self._refresh_bindings_tree()
+        self._refresh_profile_artwork()
+
+    def _refresh_profile_artwork(self, force_refresh=False):
+        """
+        Kick off an async fetch of the current profile's cover art and
+        update the thumbnail once it resolves (or show "(no cover art)" if
+        it can't be found/fetched/disabled - see steamgriddb.get_profile_artwork
+        for exactly what that covers). Called whenever the selected profile
+        changes, and after cover-art settings or the profile's
+        steamgriddb_id are changed.
+        """
+        profile = self.controller.profiles.get(self.current_profile_id)
+        if not profile:
+            self.profile_artwork_label.config(image="", text="(no profile selected)")
+            return
+        self.profile_artwork_label.config(image="", text="Loading cover art...")
+        requested_profile_id = self.current_profile_id
+
+        def on_done(path):
+            """Runs on the Tk main thread once the fetch resolves; updates the thumbnail unless the selection has since moved on."""
+            # The user may have switched to a different profile while this
+            # fetch was in flight - discard a stale result rather than
+            # showing the wrong game's art on top of the current selection.
+            if requested_profile_id != self.current_profile_id:
+                return
+            if path is None:
+                self.profile_artwork_label.config(image="", text="(no cover art)")
+                return
+            self._profile_artwork_image = self._load_thumbnail_image(path)
+            self.profile_artwork_label.config(image=self._profile_artwork_image, text="")
+
+        self._fetch_artwork_async(profile.id, profile.name, profile.steamgriddb_id, on_done, force_refresh)
 
     def _refresh_bindings_tree(self):
+        """Rebuild the bindings table from self.current_bindings (the in-memory working copy, not necessarily what's on disk)."""
         self.bindings_tree.delete(*self.bindings_tree.get_children())
         for i, b in enumerate(self.current_bindings):
             vibe = f"{b['vibe_low'] * 100:.0f}-{b['vibe_high'] * 100:.0f}"
@@ -473,6 +642,16 @@ class App:
             )
 
     def _on_new_profile(self):
+        """
+        "New profile..." button handler: asks for a folder id, display name,
+        and window-title match, then seeds the new profile's keybinds.json/
+        ranges.json from an existing profiles/minecraft/ on disk if present
+        (so a user's own edits to it get carried forward as the template),
+        falling back to the hardcoded DEFAULT_MINECRAFT_* dicts otherwise.
+        Rolls the new folder back (shutil.rmtree) if the result somehow
+        fails to parse, so a bad template can't leave a broken profile
+        folder lying around.
+        """
         new_id = simpledialog.askstring("New profile", "Folder id (letters/numbers/underscores):", parent=self.root)
         if not new_id:
             return
@@ -514,6 +693,14 @@ class App:
         self._enqueue_log(f"Created profile '{profile.name}' (copied bindings from the Minecraft template).")
 
     def _on_reload_profiles(self):
+        """
+        "Reload all from disk" button handler: re-runs the full profile
+        loader (picking up any hand-edited JSON) and replaces the
+        controller's profile set in place - mutating the existing dict
+        rather than assigning a new one, since background_loop() holds a
+        reference to `self.controller.profiles` and needs to see the
+        update immediately, not just after some future re-read.
+        """
         try:
             fresh = load_profiles()
         except RuntimeError as e:
@@ -525,6 +712,16 @@ class App:
         self._enqueue_log("Profiles reloaded from disk.")
 
     def _compose_profile_files(self):
+        """
+        Build the (keybinds_dict, ranges_dict) pair to write to disk from
+        the current form fields and self.current_bindings - the reverse of
+        _binding_to_editable(). Raises ValueError (with a message meant to
+        be shown to the user directly) on anything that won't parse:
+        missing window title, or a VibeRange/DurationRange constructed with
+        low > high or out-of-bounds values. Does not touch disk itself -
+        see _on_save_profile() for the write+validate+rollback flow that
+        calls this.
+        """
         name = self.profile_name_var.get().strip() or self.current_profile_id
         window_titles = [t.strip().lower() for t in self.profile_windows_var.get().split(",") if t.strip()]
         if not window_titles:
@@ -546,6 +743,13 @@ class App:
                 for b in self.current_bindings
             ],
         }
+        # steamgriddb_id isn't editable via this form (see
+        # _on_change_artwork's dialog instead) - carry the currently-loaded
+        # value forward so a routine save here doesn't silently clear it.
+        current_profile = self.controller.profiles.get(self.current_profile_id)
+        if current_profile and current_profile.steamgriddb_id is not None:
+            keybinds["steamgriddb_id"] = current_profile.steamgriddb_id
+
         ranges = {"background": {"vibe": [bg_low, bg_high]}}
         for b in self.current_bindings:
             VibeRange(b["vibe_low"], b["vibe_high"])
@@ -557,6 +761,17 @@ class App:
         return keybinds, ranges
 
     def _on_save_profile(self):
+        """
+        "Save profile" button handler. Snapshots the current on-disk JSON
+        first, writes the new keybinds.json/ranges.json from the form, then
+        immediately tries to load them back through the real engine parser
+        (haptics._load_profile) - if that fails, the snapshot is restored
+        so a bad edit never leaves the profile folder in a broken state,
+        and the error is shown to the user instead of only surfacing the
+        next time the app starts. On success, refreshes both the
+        controller's live profile and the form (to reflect the canonical
+        parsed values, e.g. rounded numbers).
+        """
         if not self.current_profile_id:
             return
         profile_dir = PROFILES_DIR / self.current_profile_id
@@ -584,7 +799,119 @@ class App:
         self._enqueue_log(f"Saved profile '{profile.name}'.")
         self._load_profile_into_form(profile.id)
 
+    def _set_profile_steamgriddb_id(self, profile_id, game_id):
+        """
+        Write `game_id` (or None, to go back to searching by name) into a
+        profile's keybinds.json as steamgriddb_id, reload it through the
+        real parser, and refresh its artwork. Used by _on_change_artwork -
+        a targeted single-field update rather than going through
+        _compose_profile_files, since that only knows about what the
+        Profiles tab's form itself edits.
+        """
+        profile_dir = PROFILES_DIR / profile_id
+        keybinds_path = profile_dir / "keybinds.json"
+        keybinds = json.loads(keybinds_path.read_text(encoding="utf-8"))
+        if game_id is None:
+            keybinds.pop("steamgriddb_id", None)
+        else:
+            keybinds["steamgriddb_id"] = game_id
+        keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
+
+        try:
+            profile = haptics._load_profile(profile_dir)
+        except Exception as e:
+            messagebox.showerror("Cover art", f"Failed to apply: {e}")
+            return
+        self.controller.profiles[profile.id] = profile
+        if profile.id == self.current_profile_id:
+            self._refresh_profile_artwork(force_refresh=True)
+        self._enqueue_log(
+            f"Cleared SteamGridDB override for '{profile.name}'." if game_id is None
+            else f"Set SteamGridDB game id {game_id} for '{profile.name}'."
+        )
+
+    def _on_change_artwork(self):
+        """
+        "Change cover art..." button handler: opens a search dialog so the
+        user can pin a profile to an exact SteamGridDB game (bypassing
+        auto-search, which can pick the wrong game for an ambiguous or very
+        new title). Requires cover art to already be enabled with a valid
+        API key in Settings - this dialog only searches/selects, it doesn't
+        configure the credential itself.
+        """
+        if not self.current_profile_id:
+            return
+        profile = self.controller.profiles[self.current_profile_id]
+        config = steamgriddb.load_config()
+        if not config.get("enabled") or not config.get("api_key"):
+            messagebox.showinfo("Cover art", "Enable cover art and set an API key in Settings first.")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Choose SteamGridDB game")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        body = ttk.Frame(dialog, padding=10)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Search term:").grid(row=0, column=0, sticky="w")
+        term_var = tk.StringVar(value=profile.name)
+        ttk.Entry(body, textvariable=term_var, width=32).grid(row=0, column=1, sticky="w", padx=6)
+
+        results_list = tk.Listbox(body, width=55, height=10)
+        results_list.grid(row=1, column=0, columnspan=3, pady=8, sticky="nsew")
+        results = []
+
+        def do_search():
+            """"Search" button handler (also called once up front to pre-populate results for the profile's own name)."""
+            nonlocal results
+            try:
+                results = steamgriddb.search_game(config["api_key"], term_var.get().strip())
+            except Exception as e:
+                messagebox.showerror("Search failed", str(e), parent=dialog)
+                return
+            results_list.delete(0, "end")
+            for game in results:
+                tag = " (verified)" if game.get("verified") else ""
+                results_list.insert("end", f"{game['name']}{tag}  [id {game['id']}]")
+
+        ttk.Button(body, text="Search", command=do_search).grid(row=0, column=2, padx=6)
+
+        def use_selected():
+            """"Use selected" button handler: pin the profile to the chosen search result's game id."""
+            selection = results_list.curselection()
+            if not selection:
+                messagebox.showinfo("Cover art", "Select a game from the results first.", parent=dialog)
+                return
+            self._set_profile_steamgriddb_id(self.current_profile_id, results[selection[0]]["id"])
+            dialog.destroy()
+
+        def use_automatic():
+            """"Use automatic search instead" button handler: clear any override so the profile goes back to searching by name."""
+            self._set_profile_steamgriddb_id(self.current_profile_id, None)
+            dialog.destroy()
+
+        btns = ttk.Frame(body)
+        btns.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        ttk.Button(btns, text="Use selected", command=use_selected).pack(side="left")
+        ttk.Button(btns, text="Use automatic search instead", command=use_automatic).pack(side="left", padx=6)
+        ttk.Button(btns, text="Cancel", command=dialog.destroy).pack(side="right")
+
+        do_search()
+
     def _open_binding_dialog(self, existing=None):
+        """
+        Modal add/edit dialog for one binding. Pass `existing` (an editable
+        binding dict, per _binding_to_editable) to pre-fill and edit it in
+        place, or omit it to create a new one with sensible defaults.
+
+        Blocks (via dialog.wait_window()) until the dialog closes, then
+        returns the new/edited editable-binding dict on "OK", or None if
+        cancelled or closed without saving. Validation (non-empty id/keys,
+        valid VibeRange/DurationRange, no 'scroll' on a continuous binding)
+        happens inside on_ok() and re-prompts via messagebox rather than
+        closing the dialog, so a mistake doesn't lose everything typed in.
+        """
         dialog = tk.Toplevel(self.root)
         dialog.title("Binding")
         dialog.transient(self.root)
@@ -592,6 +919,7 @@ class App:
         dialog.resizable(False, False)
 
         def row_entry(r, label, var, width=32):
+            """Place a label+entry pair on grid row `r` - just a shorthand to avoid repeating this twice per field below."""
             ttk.Label(dialog, text=label).grid(row=r, column=0, sticky="w", padx=6, pady=3)
             ttk.Entry(dialog, textvariable=var, width=width).grid(row=r, column=1, sticky="w", padx=6, pady=3)
 
@@ -619,9 +947,17 @@ class App:
         row_entry(7, "Duration sec high (pulse only):", duration_high_var, width=10)
         ttk.Checkbutton(dialog, text="Enabled", variable=enabled_var).grid(row=8, column=1, sticky="w", padx=6, pady=3)
 
-        result = {}
+        result = {}  # populated by on_ok() below; stays empty if the dialog is cancelled
 
         def on_ok():
+            """
+            "OK" button handler: validate every field and, if all is well,
+            populate the enclosing `result` dict and close the dialog. On
+            any ValueError (bad number, empty field, invalid range, ...)
+            shows the message in a messagebox and leaves the dialog open
+            with whatever was typed intact, so the user can just fix the
+            one bad field rather than starting over.
+            """
             try:
                 bid = id_var.get().strip()
                 if not bid:
@@ -661,6 +997,7 @@ class App:
         return result or None
 
     def _on_add_binding(self):
+        """"Add binding..." button handler: opens a blank dialog and appends the result to the working copy, if any."""
         result = self._open_binding_dialog()
         if not result:
             return
@@ -671,6 +1008,12 @@ class App:
         self._refresh_bindings_tree()
 
     def _on_edit_binding(self):
+        """
+        "Edit binding..." button handler. The bindings Treeview's row iids
+        are just str(index) into self.current_bindings (see
+        _refresh_bindings_tree), so the selected row maps directly back to
+        the binding dict to edit.
+        """
         selection = self.bindings_tree.selection()
         if not selection:
             messagebox.showinfo("Edit binding", "Select a binding first.")
@@ -682,6 +1025,7 @@ class App:
             self._refresh_bindings_tree()
 
     def _on_remove_binding(self):
+        """"Remove binding" button handler: deletes the selected row from the working copy (see _on_edit_binding on row iids)."""
         selection = self.bindings_tree.selection()
         if not selection:
             messagebox.showinfo("Remove binding", "Select a binding first.")
@@ -696,6 +1040,15 @@ class App:
     # the same code path real input does, via HapticsController.test_pulse()
     # and a "pinned" active profile - see test_profile_override in haptics.py).
     def _build_test_tab(self):
+        """
+        Build the Test tab: a profile picker + pin toggle + "Stop all
+        testing" up top, and two side-by-side panels below it (manual
+        channel control, simulate keybinds - see the module comment above
+        for what each does). The two panels' contents are rebuilt
+        dynamically by _refresh_test_channels()/_refresh_test_bindings(),
+        not laid out statically here, since they depend on how many
+        channels/bindings currently exist.
+        """
         frame = self.test_tab
         self._add_header(frame, "Test")
 
@@ -704,12 +1057,17 @@ class App:
         ttk.Label(top, text="Profile to test:").pack(side="left")
         self.test_profile_combo = ttk.Combobox(top, state="readonly", width=22)
         self.test_profile_combo.pack(side="left", padx=6)
-        self.test_profile_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh_test_bindings())
+        self.test_profile_combo.bind(
+            "<<ComboboxSelected>>", lambda e: (self._refresh_test_bindings(), self._refresh_test_artwork())
+        )
         self.test_pin_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             top, text="Pin as active profile (ignores the real focused window)",
             variable=self.test_pin_var, command=self._on_toggle_test_pin,
         ).pack(side="left", padx=12)
+        self.test_artwork_label = ttk.Label(top, text="")
+        self.test_artwork_label.pack(side="left", padx=12)
+        self._test_artwork_image = None  # keep a reference - PhotoImage is garbage-collected otherwise
         ttk.Button(top, text="Stop all testing", command=self._on_stop_all_test).pack(side="right")
 
         panes = ttk.Panedwindow(frame, orient="horizontal")
@@ -734,8 +1092,36 @@ class App:
         self.test_bindings_container = ttk.Frame(bindings_frame)
         self.test_bindings_container.pack(fill="both", expand=True, padx=6, pady=6)
 
+    def _refresh_test_artwork(self):
+        """Same idea as _refresh_profile_artwork, but for the Test tab's small toolbar-row thumbnail next to its own profile picker."""
+        profile = self.controller.profiles.get(self.test_profile_combo.get())
+        if not profile:
+            self.test_artwork_label.config(image="", text="")
+            return
+        requested_profile_id = profile.id
+
+        def on_done(path):
+            """Runs on the Tk main thread once the fetch resolves; see the sibling on_done in _refresh_profile_artwork for the pattern."""
+            if self.test_profile_combo.get() != requested_profile_id:
+                return
+            if path is None:
+                self.test_artwork_label.config(image="", text="")
+                return
+            self._test_artwork_image = self._load_thumbnail_image(path)
+            self.test_artwork_label.config(image=self._test_artwork_image, text="")
+
+        self._fetch_artwork_async(profile.id, profile.name, profile.steamgriddb_id, on_done)
+
     # --- manual per-channel control -----------------------------------
     def _refresh_test_channels(self):
+        """
+        Rebuild the manual-control panel with one row per connected
+        channel (slider + %, Hold checkbox, Pulse button), tearing down and
+        recreating every widget rather than diffing - simple, and cheap
+        enough since this only runs after connect/rescan/rename, not on a
+        timer. Populates self._test_channel_widgets so other handlers
+        (_on_stop_all_test in particular) can find each row's Vars again.
+        """
         for child in self.test_channels_container.winfo_children():
             child.destroy()
         self._test_channel_widgets = {}
@@ -771,23 +1157,34 @@ class App:
             self._test_channel_widgets[nickname] = {"level_var": level_var, "hold_var": hold_var}
 
     def _on_test_level_changed(self, nickname, level_var, hold_var, pct_label):
+        """Slider `write`-trace callback: update the "N%" label live, and push the new level if this channel is currently held."""
         pct_label.config(text=f"{level_var.get()}%")
         if hold_var.get():
             self.bridge.submit(self.controller.set_test_level(nickname, level_var.get() / 100.0))
 
     def _on_toggle_channel_hold(self, nickname, level_var, hold_var):
+        """Per-channel "Hold" checkbox handler: engage or release a manual level override at the slider's current position."""
         if hold_var.get():
             self.bridge.submit(self.controller.set_test_level(nickname, level_var.get() / 100.0))
         else:
             self.bridge.submit(self.controller.clear_test_level(nickname))
 
     def _on_test_channel_pulse(self, nickname, level_var):
+        """Per-channel "Pulse" button handler: fire a fixed-duration test pulse at the slider's current level, just this one channel."""
         level = level_var.get() / 100.0
         vibe = VibeRange(level, level)
         self.bridge.submit(self.controller.test_pulse(vibe, 0.6, frozenset({nickname})))
 
     # --- simulated keybinds ---------------------------------------------
     def _refresh_test_bindings(self):
+        """
+        Rebuild the "simulate keybinds" panel for whichever profile is
+        selected in test_profile_combo: a "Hold" checkbox per enabled
+        continuous binding, a "Trigger" button per enabled pulse binding.
+        Disabled bindings are skipped - there's nothing to test on a
+        binding that won't fire anyway. Called whenever the profile
+        selector changes, or the profile list itself changes.
+        """
         for child in self.test_bindings_container.winfo_children():
             child.destroy()
         self._test_binding_widgets = {}
@@ -823,19 +1220,42 @@ class App:
                 ttk.Button(row, text="Trigger", command=lambda b=binding: self._on_trigger_binding(b)).pack(side="left")
 
     def _on_toggle_binding_hold(self, tokens, hold_var):
-        # Simulates the key(s) being physically held - background_loop()
-        # picks this up exactly like real pynput input would, as long as
-        # this profile is pinned active (see _on_toggle_test_pin below).
+        """
+        Continuous-binding "Hold" checkbox handler: add or remove this
+        binding's key tokens from the shared InputState.pressed_keys set.
+        Simulates the key(s) being physically held - background_loop()
+        picks this up exactly like real pynput input would, as long as
+        this profile is pinned active (see _on_toggle_test_pin below); if
+        it isn't pinned (or the engine isn't Started), toggling this has no
+        visible effect since nothing is reading pressed_keys against this
+        profile right now.
+        """
         if hold_var.get():
             self.controller.input_state.pressed_keys |= set(tokens)
         else:
             self.controller.input_state.pressed_keys -= set(tokens)
 
     def _on_trigger_binding(self, binding):
+        """
+        Pulse-binding "Trigger" button handler: fire exactly the pulse a
+        real press of this binding would, using its own vibe/duration
+        range and devices target. Falls back to a fixed 0.3s if the
+        binding somehow has no duration range (shouldn't happen for a
+        valid pulse binding, but keeps this from erroring on an edge case).
+        Uses test_pulse(), not pulse(), so this works even with no profile
+        pinned/active.
+        """
         duration = binding["duration"].roll() if binding["duration"] else 0.3
         self.bridge.submit(self.controller.test_pulse(binding["vibe"], duration, binding["devices"]))
 
     def _on_toggle_test_pin(self):
+        """
+        "Pin as active profile" checkbox handler: set or clear
+        controller.test_profile_override to force (or stop forcing) the
+        selected profile active regardless of the real focused window. If
+        no profile is selected, silently un-checks itself and prompts
+        instead of pinning nothing.
+        """
         profile = self.controller.profiles.get(self.test_profile_combo.get())
         if self.test_pin_var.get():
             if not profile:
@@ -849,6 +1269,14 @@ class App:
             self._enqueue_log("Unpinned test profile - the active profile now follows the focused window again.")
 
     def _on_stop_all_test(self):
+        """
+        "Stop all testing" button handler: releases every manual channel
+        hold and every simulated keybind hold in one go, for bailing out
+        quickly (does not touch the profile pin - see _on_toggle_test_pin
+        for that). Note this does not zero the channels itself; releasing a
+        hold just lets background_loop() (or the idle branch, if nothing's
+        active) take back over on its own next tick.
+        """
         # Release every manual channel hold...
         for nickname, widgets in self._test_channel_widgets.items():
             if widgets["hold_var"].get():
@@ -865,6 +1293,14 @@ class App:
 
     # =============================================================== Settings tab
     def _build_settings_tab(self):
+        """
+        Build the Settings tab: one form field/checkbox per
+        haptics_config.json key, pre-filled from load_config(). These are
+        global engine settings read once at import time (see haptics.py's
+        module-level CONFIG derivation), so saving here writes the file but
+        doesn't take effect until the app restarts - the warning label at
+        the bottom says as much.
+        """
         frame = self.settings_tab
         self._add_header(frame, "Global settings")
         # A separate grid-managed body frame, since the header above uses
@@ -879,6 +1315,7 @@ class App:
         row = 0
 
         def add(label, key, default):
+            """Place one label+entry settings row and remember its StringVar in self.cfg_vars[key] for _on_save_settings."""
             nonlocal row
             ttk.Label(body, text=label).grid(row=row, column=0, sticky="w", **pad)
             var = tk.StringVar(value=str(default))
@@ -926,8 +1363,60 @@ class App:
             body, text="Global settings are read once at startup - restart the app for changes to take effect.",
             style="Hint.TLabel",
         ).grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+        row += 1
+
+        ttk.Separator(body, orient="horizontal").grid(row=row, column=0, columnspan=2, sticky="ew", pady=12)
+        row += 1
+        ttk.Label(body, text="Cover art (SteamGridDB)", style="Header.TLabel").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
+        row += 1
+
+        sgdb_cfg = steamgriddb.load_config()
+        self.sgdb_enabled_var = tk.BooleanVar(value=sgdb_cfg.get("enabled", False))
+        ttk.Checkbutton(body, text="Show profile cover art (fetched from SteamGridDB)", variable=self.sgdb_enabled_var).grid(
+            row=row, column=0, columnspan=2, sticky="w", **pad
+        )
+        row += 1
+        ttk.Label(body, text="API key:").grid(row=row, column=0, sticky="w", **pad)
+        self.sgdb_api_key_var = tk.StringVar(value=sgdb_cfg.get("api_key", ""))
+        ttk.Entry(body, textvariable=self.sgdb_api_key_var, width=40, show="*").grid(
+            row=row, column=1, sticky="w", **pad
+        )
+        row += 1
+        key_link = ttk.Label(
+            body, text="Get a free key at steamgriddb.com/profile/preferences", foreground="#2563eb", cursor="hand2"
+        )
+        key_link.grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+        key_link.bind("<Button-1>", lambda _e: webbrowser.open("https://www.steamgriddb.com/profile/preferences"))
+        row += 1
+        ttk.Button(body, text="Save cover art settings", command=self._on_save_steamgriddb_settings).grid(
+            row=row, column=0, sticky="w", **pad
+        )
+        row += 1
+        ttk.Label(
+            body,
+            text="This takes effect immediately (no restart needed) - artwork is fetched per profile on the Profiles/Test tabs.",
+            style="Hint.TLabel",
+        ).grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+
+    def _on_save_steamgriddb_settings(self):
+        """"Save cover art settings" button handler: persist to steamgriddb_config.json and immediately try to (re)load artwork."""
+        steamgriddb.save_config({"enabled": self.sgdb_enabled_var.get(), "api_key": self.sgdb_api_key_var.get().strip()})
+        self._enqueue_log("Cover art settings saved.")
+        self._refresh_profile_artwork()
+        self._refresh_test_artwork()
 
     def _on_save_settings(self):
+        """
+        "Save settings" button handler: assemble a full haptics_config.json-
+        shaped dict from every form field and write it, after validating
+        the master-range values actually form a valid VibeRange. Unlike
+        profile saving, there's no read-back-through-the-real-parser step
+        here (load_config() doesn't validate ranges the way _load_profile
+        does), so the VibeRange construction below is what catches a
+        swapped/out-of-bounds master range before it hits disk.
+        """
         try:
             cfg = {
                 "intiface_ws": self.cfg_vars["intiface_ws"].get().strip(),
@@ -960,6 +1449,7 @@ class App:
 
     # =============================================================== Run tab
     def _build_run_tab(self):
+        """Build the Run tab: Start/Stop buttons, a live per-channel status readout, and the log pane most self.log() calls feed."""
         frame = self.run_tab
         self._add_header(frame, "Run")
 
@@ -983,9 +1473,20 @@ class App:
         self.log_text.pack(fill="both", expand=True)
 
     def _on_start(self):
+        """
+        "Start" button handler. Connects first if this is the very first
+        Start (no client yet) - so clicking Start alone is enough without
+        needing to visit the Devices tab first - then calls
+        controller.start_engine(), which is what actually spins up
+        background_loop() and the pynput listeners. Both steps have to run
+        on the bridge's event loop (start_engine() calls
+        asyncio.create_task(), which requires one), hence the local
+        `_start()` coroutine wrapping both instead of calling them directly.
+        """
         self.start_btn.config(state="disabled")
 
         async def _start():
+            """Runs on the bridge's loop: connect if needed, then start the engine. Returns whether it's now actually running."""
             if not self.controller.client:
                 if not await self.controller.connect():
                     return False
@@ -996,6 +1497,7 @@ class App:
         fut.add_done_callback(lambda f: self.root.after(0, self._after_start, f))
 
     def _after_start(self, fut):
+        """Runs on the Tk main thread once _start() (see _on_start) finishes; flips button states based on success."""
         try:
             ok = fut.result()
         except Exception as e:
@@ -1009,11 +1511,13 @@ class App:
             self.start_btn.config(state="normal")
 
     def _on_stop(self):
+        """"Stop" button handler: submits controller.stop_engine() (cancels background_loop, stops listeners, zeroes channels)."""
         self.stop_btn.config(state="disabled")
         fut = self.bridge.submit(self.controller.stop_engine())
         fut.add_done_callback(lambda f: self.root.after(0, self._after_stop, f))
 
     def _after_stop(self, fut):
+        """Runs on the Tk main thread once stop_engine() finishes; re-enables Start regardless of whether it errored."""
         try:
             fut.result()
         except Exception as e:
@@ -1023,6 +1527,7 @@ class App:
 
     # =============================================================== About tab
     def _build_about_tab(self):
+        """Build the About tab: project blurb, age notice, versioning note, a clickable repo link, and the changelog viewer."""
         frame = self.about_tab
         self._add_header(frame, PROJECT_NAME)
 
@@ -1074,6 +1579,13 @@ class App:
         self._load_changelog()
 
     def _load_changelog(self):
+        """
+        (Re)load CHANGELOG.md's raw text into the changelog viewer. Also
+        wired to the "Reload" button, for after a hand edit to the file
+        without restarting the app. The Text widget is briefly set to
+        "normal" to allow the delete+insert, then back to "disabled" so the
+        user can select/copy text but not accidentally edit the display.
+        """
         try:
             content = CHANGELOG_PATH.read_text(encoding="utf-8")
         except OSError as e:
@@ -1085,9 +1597,26 @@ class App:
 
     # =============================================================== shared plumbing
     def _enqueue_log(self, message):
+        """
+        The `log_fn` passed to HapticsController (and called directly by
+        the GUI itself in a few places). Safe to call from any thread -
+        queue.Queue is thread-safe - since controller log calls can
+        originate from the bridge's asyncio thread (background_loop, pynput
+        callbacks scheduled onto it) as well as the Tk main thread. Actually
+        displaying the message happens later, on the Tk thread, via
+        _poll_log_queue().
+        """
         self.log_queue.put(str(message))
 
     def _poll_log_queue(self):
+        """
+        Runs every 150ms on the Tk main thread (self-rescheduling via
+        root.after): drains every message _enqueue_log() has queued since
+        the last poll and appends them to the Run tab's log pane. This
+        poll-a-queue pattern is the only safe way to get text from the
+        background asyncio thread onto a Tkinter widget, which can only be
+        touched from the main thread.
+        """
         try:
             while True:
                 message = self.log_queue.get_nowait()
@@ -1100,6 +1629,15 @@ class App:
         self._log_poll_id = self.root.after(150, self._poll_log_queue)
 
     def _poll_status(self):
+        """
+        Runs every 400ms on the Tk main thread (self-rescheduling, same
+        pattern as _poll_log_queue): refreshes the Run tab's "Live status"
+        label with the current active profile and every channel's last-sent
+        level. Reads controller/channel attributes directly rather than
+        through a queue - safe enough for a display-only read of simple
+        values (floats, a profile reference) under the GIL, unlike posting
+        a mutating command the other direction.
+        """
         if self.controller.channels:
             active = self.controller.active_profile.name if self.controller.active_profile else "(none - idle)"
             lines = [f"Active profile: {active}"]
@@ -1111,6 +1649,13 @@ class App:
         self._status_poll_id = self.root.after(400, self._poll_status)
 
     def _on_close(self):
+        """
+        Window-close handler (bound to WM_DELETE_WINDOW): stop the pollers,
+        submit a full controller.shutdown() (stop engine + disconnect) and
+        wait up to 5s for it, then destroy the window. The 5s wait blocks
+        the Tk thread briefly, which is fine for a one-time shutdown but
+        would be the wrong pattern anywhere else in this app.
+        """
         # Cancel the recurring pollers first - otherwise a poller already
         # queued via `after` can fire against a destroyed root and print a
         # harmless but noisy "invalid command name" error on exit.
@@ -1132,6 +1677,10 @@ def _show_age_gate(root) -> bool:
     dialog.transient(root)
     dialog.grab_set()
 
+    # A one-item dict rather than a plain bool so confirm()/decline() (each
+    # a separate nested function) can mutate it without a `nonlocal`
+    # declaration per function - _show_age_gate reads it back after
+    # wait_window() returns.
     confirmed = {"value": False}
 
     def confirm():
@@ -1173,6 +1722,7 @@ def _show_age_gate(root) -> bool:
 
 
 def main():
+    """Module entry point for `python gui.py`: show the age gate first, and only build/run the real App if it's accepted."""
     root = tk.Tk()
     root.withdraw()  # stay hidden until the age gate is cleared
     if not _show_age_gate(root):

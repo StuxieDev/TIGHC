@@ -1,0 +1,8 @@
+# Personal API credential - never commit this
+steamgriddb_config.json
+
+# Generated/cached, not source
+__pycache__/
+*.pyc
+artwork_cache/
+steamgriddb_cache.json
