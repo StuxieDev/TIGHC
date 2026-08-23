@@ -191,10 +191,19 @@ well-indexed - use **"Change cover art..."** on the Profiles tab to search
 and pin an exact game id (stored as `steamgriddb_id` in that profile's
 `keybinds.json`; "Use automatic search instead" clears it again).
 
+That still just uses the top-voted image for whichever game is resolved -
+use **"Choose image..."** on the Profiles tab to browse every cover image
+SteamGridDB has for that game and pin a specific one instead (stored as
+`steamgriddb_grid_id`, independent of `steamgriddb_id` above - overriding
+the game and overriding the image are separate choices, either or both).
+"Use default (top-voted)" in that dialog clears the image override; if a
+previously-pinned image is later removed from SteamGridDB, this falls back
+to the default automatically and logs why on the Run tab.
+
 Note: SteamGridDB's "official art" concept only really applies to logos and
 icons, not the cover-art grids shown here - grids don't have an official/
-fan-made distinction in their API, so this just uses whichever grid has the
-most community votes.
+fan-made distinction in their API, so the default/top-voted pick above just
+means whichever grid has the most community votes.
 
 `configs/steamgriddb_config.json` holds your API key in plain text - treat
 it like a password (don't commit it or share the file).

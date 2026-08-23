@@ -25,6 +25,17 @@ Project layout reorganized so it's no longer ambiguous which file to run.
   files into `configs/` (or just let the app regenerate them with defaults).
 - `gui.py` is unchanged as the primary way to run TIGHC (`python gui.py`).
 
+### Added
+- **Cover image picker**: the Profiles tab's "Choose image..." button lets
+  you browse every cover-art image SteamGridDB has for a profile's game (not
+  just the automatically-chosen top-voted one) and pin a specific one -
+  independent of `steamgriddb_id` (which pins the *game*, not the image), so
+  you can override either one on its own. Stored as `steamgriddb_grid_id` in
+  the profile's `keybinds.json`; the top-voted image stays the default when
+  no image override is set, or if a previously-pinned one is later removed
+  from SteamGridDB (that case now falls back to the default and logs why,
+  instead of just failing).
+
 ### Fixed
 - The 18+ age-gate dialog in `gui.py` could silently never appear on some
   Windows/Tk setups: it ran without error and its event loop kept working,
@@ -38,6 +49,20 @@ Project layout reorganized so it's no longer ambiguous which file to run.
   foreground on startup (`lift()` + a brief topmost toggle + `focus_force()`),
   since Windows doesn't always let a process launched from a terminal/IDE
   steal focus for a freshly-created window on its own.
+- The Settings tab had no scrollbar, so on a window at or near the app's
+  minimum size, the entire Cover art (SteamGridDB) section at the bottom -
+  API key, enable checkbox, save button - was clipped below the visible area
+  with no way to reach it. Wrapped the tab's content in a scrollable
+  (mouse-wheel included) canvas, reused for any tab that outgrows the
+  window's minimum size.
+- Cover art fetching was silently broken for every profile: `get_grids()`
+  asked SteamGridDB's API for `mimes=png`, which the API rejects outright
+  with a 400 "Invalid mime type" (it wants the full MIME string,
+  `image/png`) - and since `get_profile_artwork()` swallowed every error
+  into a plain "no cover art available," this failure was invisible. Fixed
+  the parameter, and gave `get_profile_artwork()` an optional log callback
+  (wired to the Run tab log in `gui.py`) so a real fetch failure shows up
+  instead of vanishing next time.
 
 ## [2.0.0]
 

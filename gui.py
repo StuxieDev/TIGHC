@@ -52,6 +52,12 @@ from src.core import (
 
 CHANGELOG_PATH = Path(__file__).with_name("CHANGELOG.md")
 ARTWORK_THUMBNAIL_WIDTH = 140  # target width in pixels; see _load_thumbnail_image
+GRID_PICKER_THUMBNAIL_WIDTH = 100  # smaller than ARTWORK_THUMBNAIL_WIDTH - many of these tile at once
+# Caps how many of a game's cover images _on_choose_cover_image() downloads
+# to preview - grids are already ranked by community score (most relevant
+# first), so this keeps the picker responsive without downloading every
+# option a popular game might have (sometimes 100+, each several hundred KB).
+GRID_PICKER_LIMIT = 24
 
 BINDING_COLUMNS = ("id", "keys", "mode", "devices", "vibe", "duration", "enabled")
 BINDING_HEADERS = {
@@ -314,7 +320,22 @@ class App:
             image = image.subsample(factor, factor)
         return image
 
-    def _fetch_artwork_async(self, profile_id, profile_name, override_id, on_done, force_refresh=False):
+    @staticmethod
+    def _photoimage_from_bytes(data: bytes, target_width: int):
+        """
+        Same downscaling trick as _load_thumbnail_image(), but from
+        in-memory PNG bytes rather than a cached file - used by
+        _on_choose_cover_image()'s picker, which previews every candidate
+        image before any of them is actually chosen/cached to disk.
+        """
+        image = tk.PhotoImage(data=data)
+        width = image.width()
+        if width > target_width:
+            factor = max(1, width // target_width)
+            image = image.subsample(factor, factor)
+        return image
+
+    def _fetch_artwork_async(self, profile_id, profile_name, override_id, override_grid_id, on_done, force_refresh=False):
         """
         Fetch (or load from cache) one profile's artwork on a daemon
         thread - core.get_profile_artwork() does blocking network
@@ -325,7 +346,12 @@ class App:
         def worker():
             """Runs on the background thread: do the blocking fetch, then hand off to on_done via root.after (thread-safe)."""
             path = core.get_profile_artwork(
-                profile_id, profile_name, override_id, force_refresh=force_refresh, log_fn=self._enqueue_log
+                profile_id,
+                profile_name,
+                override_id,
+                override_grid_id=override_grid_id,
+                force_refresh=force_refresh,
+                log_fn=self._enqueue_log,
             )
             self.root.after(0, on_done, path)
 
@@ -555,6 +581,7 @@ class App:
         self.profile_artwork_label = ttk.Label(artwork_frame, text="(no cover art)", style="Hint.TLabel")
         self.profile_artwork_label.pack()
         ttk.Button(artwork_frame, text="Change cover art...", command=self._on_change_artwork).pack(pady=(6, 0))
+        ttk.Button(artwork_frame, text="Choose image...", command=self._on_choose_cover_image).pack(pady=(4, 0))
         self._profile_artwork_image = None  # keep a reference - PhotoImage is garbage-collected otherwise
 
         bindings_frame = ttk.LabelFrame(frame, text="Bindings")
@@ -671,7 +698,9 @@ class App:
             self._profile_artwork_image = self._load_thumbnail_image(path)
             self.profile_artwork_label.config(image=self._profile_artwork_image, text="")
 
-        self._fetch_artwork_async(profile.id, profile.name, profile.steamgriddb_id, on_done, force_refresh)
+        self._fetch_artwork_async(
+            profile.id, profile.name, profile.steamgriddb_id, profile.steamgriddb_grid_id, on_done, force_refresh
+        )
 
     def _refresh_bindings_tree(self):
         """Rebuild the bindings table from self.current_bindings (the in-memory working copy, not necessarily what's on disk)."""
@@ -845,22 +874,26 @@ class App:
         self._enqueue_log(f"Saved profile '{profile.name}'.")
         self._load_profile_into_form(profile.id)
 
-    def _set_profile_steamgriddb_id(self, profile_id, game_id):
+    def _update_profile_steamgriddb_fields(self, profile_id, updates, log_message_fn):
         """
-        Write `game_id` (or None, to go back to searching by name) into a
-        profile's keybinds.json as steamgriddb_id, reload it through the
-        real parser, and refresh its artwork. Used by _on_change_artwork -
-        a targeted single-field update rather than going through
-        _compose_profile_files, since that only knows about what the
-        Profiles tab's form itself edits.
+        Shared mechanics behind _set_profile_steamgriddb_id() and
+        _set_profile_steamgriddb_grid_id() below: apply `updates` (a dict of
+        keybinds.json field -> new value, where None means "remove this
+        field") to a profile's keybinds.json, reload it through the real
+        parser, refresh its artwork if it's the currently-selected profile,
+        and log via `log_message_fn(profile)` - called after reload so it
+        can use the profile's resolved display name. A targeted update
+        rather than going through _compose_profile_files, since that only
+        knows about what the Profiles tab's form itself edits.
         """
         profile_dir = PROFILES_DIR / profile_id
         keybinds_path = profile_dir / "keybinds.json"
         keybinds = json.loads(keybinds_path.read_text(encoding="utf-8"))
-        if game_id is None:
-            keybinds.pop("steamgriddb_id", None)
-        else:
-            keybinds["steamgriddb_id"] = game_id
+        for key, value in updates.items():
+            if value is None:
+                keybinds.pop(key, None)
+            else:
+                keybinds[key] = value
         keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
 
         try:
@@ -871,9 +904,39 @@ class App:
         self.controller.profiles[profile.id] = profile
         if profile.id == self.current_profile_id:
             self._refresh_profile_artwork(force_refresh=True)
-        self._enqueue_log(
-            f"Cleared SteamGridDB override for '{profile.name}'." if game_id is None
-            else f"Set SteamGridDB game id {game_id} for '{profile.name}'."
+        self._enqueue_log(log_message_fn(profile))
+
+    def _set_profile_steamgriddb_id(self, profile_id, game_id):
+        """
+        Write `game_id` (or None, to go back to searching by name) into a
+        profile's keybinds.json as steamgriddb_id. Also clears any pinned
+        cover image (steamgriddb_grid_id) - a specific image chosen for the
+        old game wouldn't mean anything once the game itself changes. Used
+        by _on_change_artwork.
+        """
+        self._update_profile_steamgriddb_fields(
+            profile_id,
+            {"steamgriddb_id": game_id, "steamgriddb_grid_id": None},
+            lambda profile: (
+                f"Cleared SteamGridDB override for '{profile.name}'." if game_id is None
+                else f"Set SteamGridDB game id {game_id} for '{profile.name}'."
+            ),
+        )
+
+    def _set_profile_steamgriddb_grid_id(self, profile_id, grid_id):
+        """
+        Write `grid_id` (or None, to go back to the default top-voted
+        image) into a profile's keybinds.json as steamgriddb_grid_id,
+        without touching any existing game override. Used by
+        _on_choose_cover_image.
+        """
+        self._update_profile_steamgriddb_fields(
+            profile_id,
+            {"steamgriddb_grid_id": grid_id},
+            lambda profile: (
+                f"Cleared cover image override for '{profile.name}' (using the default again)." if grid_id is None
+                else f"Set cover image {grid_id} for '{profile.name}'."
+            ),
         )
 
     def _on_change_artwork(self):
@@ -944,6 +1007,123 @@ class App:
         ttk.Button(btns, text="Cancel", command=dialog.destroy).pack(side="right")
 
         do_search()
+
+    def _on_choose_cover_image(self):
+        """
+        "Choose image..." button handler: resolves the current profile's
+        game (via its steamgriddb_id override if set, else by name search -
+        the same resolution get_profile_artwork() itself would use) and
+        opens a dialog of thumbnails for every available cover image, so
+        the user can pin a specific one instead of the default top-voted
+        pick _on_change_artwork()/get_profile_artwork() use automatically.
+        Requires cover art to already be enabled with a valid API key in
+        Settings, same as _on_change_artwork.
+        """
+        if not self.current_profile_id:
+            return
+        profile = self.controller.profiles[self.current_profile_id]
+        config = core.load_steamgriddb_config()
+        if not config.get("enabled") or not config.get("api_key"):
+            messagebox.showinfo("Cover art", "Enable cover art and set an API key in Settings first.")
+            return
+        api_key = config["api_key"]
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Choose cover image - {profile.name}")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.geometry("620x520")
+        loading_label = ttk.Label(dialog, text="Loading available cover images...", style="Hint.TLabel")
+        loading_label.pack(pady=40)
+
+        def worker():
+            """
+            Runs on the background thread: resolve the game, list its
+            grids, and download every candidate's full image (get_grids()
+            already restricts results to PNG, so these load directly into
+            tk.PhotoImage - see _photoimage_from_bytes). Everything is
+            handed back to on_resolved() via root.after in one shot rather
+            than incrementally, so partial/interleaved UI updates from a
+            background thread are never a concern.
+            """
+            result = {"game_id": None, "total": 0, "previews": [], "error": None}
+            try:
+                game_id = core._resolve_game_id(api_key, profile.name, profile.steamgriddb_id)
+                result["game_id"] = game_id
+                if game_id is not None:
+                    grids = core.get_grids(api_key, game_id)
+                    result["total"] = len(grids)
+                    for grid in grids[:GRID_PICKER_LIMIT]:
+                        try:
+                            image_bytes = core.download_image_bytes(grid["url"])
+                        except Exception:
+                            continue  # one bad image shouldn't sink the whole picker
+                        result["previews"].append((grid, image_bytes))
+            except Exception as e:
+                result["error"] = str(e)
+            self.root.after(0, on_resolved, result)
+
+        def on_resolved(result):
+            """Runs on the Tk main thread once every preview has been fetched: replace the loading placeholder with the actual picker UI."""
+            loading_label.destroy()
+
+            if result["error"]:
+                ttk.Label(
+                    dialog, text=f"Failed to load cover images:\n{result['error']}", style="Hint.TLabel", justify="center"
+                ).pack(pady=40, padx=20)
+                return
+            if result["game_id"] is None:
+                ttk.Label(
+                    dialog, text="Could not resolve this profile to a SteamGridDB game.", style="Hint.TLabel"
+                ).pack(pady=40, padx=20)
+                return
+            if not result["previews"]:
+                ttk.Label(dialog, text="No cover images found for this game.", style="Hint.TLabel").pack(pady=40, padx=20)
+                return
+
+            shown, total = len(result["previews"]), result["total"]
+            header = f"{shown} of {total} available" if total > shown else f"{shown} available"
+            self._add_header(dialog, f"Choose a cover image ({header})")
+
+            body = self._build_scrollable_body(dialog)
+            current_grid_id = profile.steamgriddb_grid_id
+            default_grid_id = result["previews"][0][0]["id"]  # first = top-voted = what pick_best() would choose
+            columns = 4
+
+            def make_choose(grid_id, is_default):
+                """Selecting the default tile clears the override entirely, rather than redundantly pinning the id it'd already resolve to."""
+                def choose():
+                    self._set_profile_steamgriddb_grid_id(self.current_profile_id, None if is_default else grid_id)
+                    dialog.destroy()
+                return choose
+
+            for index, (grid, image_bytes) in enumerate(result["previews"]):
+                try:
+                    photo = self._photoimage_from_bytes(image_bytes, GRID_PICKER_THUMBNAIL_WIDTH)
+                except tk.TclError:
+                    continue
+
+                is_default = grid["id"] == default_grid_id
+                is_current = (current_grid_id is None and is_default) or (current_grid_id == grid["id"])
+                cell = ttk.Frame(body, padding=4, relief="solid" if is_current else "flat", borderwidth=2 if is_current else 0)
+                cell.grid(row=index // columns, column=index % columns, padx=4, pady=4)
+
+                btn = ttk.Button(cell, image=photo, command=make_choose(grid["id"], is_default))
+                btn.image = photo  # keep a reference - PhotoImage is garbage-collected otherwise
+                btn.pack()
+                caption = "Default" if is_default else (grid.get("style") or "")
+                ttk.Label(cell, text=caption, style="Hint.TLabel").pack()
+
+            footer = ttk.Frame(dialog)
+            footer.pack(fill="x", padx=10, pady=(0, 10))
+            ttk.Button(
+                footer,
+                text="Use default (top-voted)",
+                command=lambda: (self._set_profile_steamgriddb_grid_id(self.current_profile_id, None), dialog.destroy()),
+            ).pack(side="left")
+            ttk.Button(footer, text="Cancel", command=dialog.destroy).pack(side="right")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _open_binding_dialog(self, existing=None):
         """
@@ -1156,7 +1336,7 @@ class App:
             self._test_artwork_image = self._load_thumbnail_image(path)
             self.test_artwork_label.config(image=self._test_artwork_image, text="")
 
-        self._fetch_artwork_async(profile.id, profile.name, profile.steamgriddb_id, on_done)
+        self._fetch_artwork_async(profile.id, profile.name, profile.steamgriddb_id, profile.steamgriddb_grid_id, on_done)
 
     # --- manual per-channel control -----------------------------------
     def _refresh_test_channels(self):

@@ -460,6 +460,12 @@ class Profile:
     # (e.g. a sequel or spin-off with a similar title). None means "search
     # by name".
     steamgriddb_id: Optional[int] = None
+    # Optional: pins this profile to one exact grid (cover-art image) id
+    # among that game's available options, instead of the default top-voted
+    # one get_profile_artwork() would otherwise pick via pick_best(). None
+    # means "use the default". Independent of steamgriddb_id above - you can
+    # override the image without overriding the game, or vice versa.
+    steamgriddb_grid_id: Optional[int] = None
 
     def matches(self, window_title_lower: str) -> bool:
         """True if this profile's window_titles has a substring match in the (already-lowercased) window title."""
@@ -631,6 +637,7 @@ def _load_profile(profile_dir: Path) -> Profile:
         background=background,
         bindings=parsed_bindings,
         steamgriddb_id=keybinds.get("steamgriddb_id"),
+        steamgriddb_grid_id=keybinds.get("steamgriddb_grid_id"),
     )
 
 
@@ -1393,8 +1400,27 @@ def _resolve_game_id(api_key: str, profile_name: str, override_id: Optional[int]
     return (verified or results)[0]["id"]
 
 
+def download_image_bytes(url: str) -> bytes:
+    """
+    Fetch raw image bytes from a SteamGridDB CDN URL (a grid's full image or
+    its `thumb` preview) - same User-Agent requirement as the API itself
+    (see STEAMGRIDDB_USER_AGENT above), no Bearer token needed since these
+    are public assets. Shared by get_profile_artwork() (caching the chosen
+    full-size grid) and gui.py's cover-image picker (previewing every
+    candidate before one is chosen).
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": STEAMGRIDDB_USER_AGENT})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return response.read()
+
+
 def get_profile_artwork(
-    profile_id: str, profile_name: str, override_id: Optional[int] = None, force_refresh: bool = False, log_fn=None
+    profile_id: str,
+    profile_name: str,
+    override_id: Optional[int] = None,
+    override_grid_id: Optional[int] = None,
+    force_refresh: bool = False,
+    log_fn=None,
 ) -> Optional[Path]:
     """
     Return a local file path to this profile's cached cover-art PNG,
@@ -1410,10 +1436,17 @@ def get_profile_artwork(
     malformed request just looked like "no cover art" with no way to tell
     why (see the get_grids() mimes-parameter bug this caught).
 
-    The on-disk cache entry is only trusted if it still matches what's
-    being asked for now (the same override_id, or - with no override - the
-    same profile_name); renaming a profile or setting/changing its
-    steamgriddb_id invalidates the old entry and triggers a fresh lookup.
+    `override_grid_id`, if given, pins the exact grid (image) to use among
+    the game's available options instead of the default top-voted one
+    pick_best() would otherwise choose - see gui.py's cover-image picker. If
+    that id is no longer among the game's grids (e.g. deleted upstream since
+    it was chosen), this falls back to pick_best() and logs why via
+    `log_fn`, rather than failing outright over one stale reference.
+
+    The on-disk cache entry is only trusted if it still matches what's being
+    asked for now (the same override_id/override_grid_id, or - with no
+    override - the same profile_name); renaming a profile or changing
+    either override invalidates the old entry and triggers a fresh lookup.
     """
     config = load_steamgriddb_config()
     if not config.get("enabled") or not config.get("api_key"):
@@ -1422,10 +1455,16 @@ def get_profile_artwork(
 
     cache = _load_steamgriddb_cache()
     entry = cache.get(profile_id, {})
+    # Compares the *requested* grid_override_id against last time, not the
+    # grid_id the fetch actually resolved to - comparing against the
+    # resolved id can't tell "explicitly re-pinned the same image the
+    # default already was" apart from "asked for the default", so switching
+    # from an override back to no-override wouldn't be detected as a cache
+    # miss and would just keep serving the old override's image forever.
     cache_matches_request = (
         (override_id is not None and entry.get("game_id") == override_id)
         or (override_id is None and entry.get("resolved_name") == profile_name)
-    )
+    ) and entry.get("grid_override_id") == override_grid_id
     if not force_refresh and cache_matches_request and entry.get("cached_file"):
         cached_path = Path(entry["cached_file"])
         if cached_path.exists():
@@ -1436,26 +1475,30 @@ def get_profile_artwork(
         if game_id is None:
             return None
 
-        best = pick_best(get_grids(api_key, game_id))
+        grids = get_grids(api_key, game_id)
+        best = None
+        if override_grid_id is not None:
+            best = next((g for g in grids if g["id"] == override_grid_id), None)
+            if best is None and log_fn is not None:
+                log_fn(
+                    f"Chosen cover image {override_grid_id} for '{profile_name}' is no longer available - "
+                    "falling back to the default."
+                )
+        if best is None:
+            best = pick_best(grids)
         if best is None:
             return None
 
         ARTWORK_CACHE_DIR.mkdir(exist_ok=True)
         cached_path = ARTWORK_CACHE_DIR / f"{best['id']}.png"
         if force_refresh or not cached_path.exists():
-            # The image itself lives on SGDB's CDN, not the API host, and
-            # doesn't need the Bearer token (it's a public asset) - but still
-            # gets the same User-Agent, since a CDN behind the same kind of
-            # bot protection could block a bare urllib request just as the
-            # API host does (see the USER_AGENT comment above).
-            image_request = urllib.request.Request(best["url"], headers={"User-Agent": STEAMGRIDDB_USER_AGENT})
-            with urllib.request.urlopen(image_request, timeout=15) as response:
-                cached_path.write_bytes(response.read())
+            cached_path.write_bytes(download_image_bytes(best["url"]))
 
         cache[profile_id] = {
             "game_id": game_id,
             "resolved_name": profile_name,
             "grid_id": best["id"],
+            "grid_override_id": override_grid_id,
             "cached_file": str(cached_path),
         }
         _save_steamgriddb_cache(cache)
