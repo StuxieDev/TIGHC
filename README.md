@@ -16,7 +16,7 @@ each with its own keybinds, intensity ranges, and per-motor device targeting,
 driven from an interactive GUI. As much as I hate to say it this was made
 with grok, chat gpt, and some claude. (I wish I was better at coding)
 
-Website: https://tighc.stuxie.dev
+Website: https://tighc.stuxie.dev  
 Repository: https://github.com/StuxieDev/TIGHC
 
 ## Author
@@ -24,6 +24,9 @@ Repository: https://github.com/StuxieDev/TIGHC
 <img src="assets/author.png" width="80" height="80" alt="StuxieDev" align="left" style="margin-right: 12px;">
 
 **[StuxieDev](https://github.com/StuxieDev)**
+
+<br>
+<br>
 
 ## Quick start
 
