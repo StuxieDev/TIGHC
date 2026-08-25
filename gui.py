@@ -433,13 +433,21 @@ class App:
         `fut` is the concurrent.futures.Future from AsyncBridge.submit();
         `.result()` re-raises whatever exception the coroutine raised, if
         any, which is caught here and logged rather than crashing the GUI.
+
+        Connect + Scan and Disconnect are mutually exclusive based on
+        whether a connection now exists, rather than Connect + Scan always
+        re-enabling itself on success - clicking it again while already
+        connected would silently open a *second* connection (connect()
+        always builds a fresh ButtplugClient) without closing the first,
+        instead of the intended "Disconnect first, then Connect again".
         """
-        self.connect_btn.config(state="normal")
         try:
             fut.result()
         except Exception as e:
             self._enqueue_log(f"Connect failed: {e}")
-        self.disconnect_btn.config(state="normal" if self.controller.client else "disabled")
+        is_connected = bool(self.controller.client)
+        self.connect_btn.config(state="disabled" if is_connected else "normal")
+        self.disconnect_btn.config(state="normal" if is_connected else "disabled")
         self._refresh_channels_tree()
 
     def _on_disconnect_clicked(self):
@@ -1825,14 +1833,22 @@ class App:
         fut.add_done_callback(lambda f: self.root.after(0, self._after_start, f))
 
     def _after_start(self, fut):
-        """Runs on the Tk main thread once _start() (see _on_start) finishes; flips button states based on success."""
+        """
+        Runs on the Tk main thread once _start() (see _on_start) finishes;
+        flips button states based on success. Also updates the Devices
+        tab's Connect/Disconnect buttons, not just the Run tab's own -
+        Start connects too if there wasn't already a client (see _on_start),
+        so this is as much a "did we just connect" moment as _after_connect.
+        """
         try:
             ok = fut.result()
         except Exception as e:
             ok = False
             self._enqueue_log(f"Start failed: {e}")
         self._refresh_channels_tree()
-        self.disconnect_btn.config(state="normal" if self.controller.client else "disabled")
+        is_connected = bool(self.controller.client)
+        self.connect_btn.config(state="disabled" if is_connected else "normal")
+        self.disconnect_btn.config(state="normal" if is_connected else "disabled")
         if ok:
             self.stop_btn.config(state="normal")
             self.status_var.set("Running")

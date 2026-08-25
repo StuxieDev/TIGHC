@@ -5,7 +5,7 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.2.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.2.1** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 A haptic controller that links your keyboard/mouse input to a Buttplug/Intiface

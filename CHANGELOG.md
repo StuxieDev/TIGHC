@@ -5,6 +5,18 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.2.1]
+
+### Fixed
+- The Devices tab's "Connect + Scan" button stayed enabled even after a
+  successful connection, instead of becoming mutually exclusive with
+  "Disconnect" the way the two are meant to be - clicking it again while
+  already connected would silently open a *second* connection (`connect()`
+  always builds a fresh `ButtplugClient`) without closing the first, rather
+  than requiring "Disconnect" first. Also applied the same fix to the Run
+  tab's "Start" button, which can establish the connection too if there
+  wasn't one yet.
+
 ## [3.2.0]
 
 ### Changed
