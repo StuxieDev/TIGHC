@@ -87,7 +87,7 @@ from pynput import keyboard, mouse
 PROJECT_NAME = "The Intiface Game Haptics Controller"
 PROJECT_SHORT_NAME = "TIGHC"
 REPO_URL = "https://github.com/StuxieDev/TIGHC"
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
 # =============================================== FILESYSTEM LAYOUT ==========================================
 # core.py lives at <repo root>/src/core.py, so every path below is resolved
@@ -1388,13 +1388,28 @@ class HapticsController:
         await asyncio.gather(*(self._set_channel_level(c, 0.0) for c in self.channels.values()))
 
     async def shutdown(self):
-        """Full teardown: stop the engine and disconnect from Intiface."""
+        """
+        Stop the engine and disconnect from Intiface, resetting connection
+        state back to how it looks before connect() is ever called - safe
+        to call while the app keeps running (e.g. a GUI "Disconnect"
+        button), not just once at exit. Without clearing self.client, a
+        subsequent connect() would still succeed (it always builds a fresh
+        ButtplugClient), but anything checking "is there already a client"
+        first - like gui.py's Start button, which skips connect() entirely
+        if self.client is truthy - would wrongly treat a disconnected
+        client as still connected. Clearing self.channels similarly avoids
+        stale entries (from features on a connection that no longer exists)
+        lingering in a device list the GUI hasn't otherwise been told to
+        refresh.
+        """
         await self.stop_engine()
         if self.client:
             try:
                 await self.client.disconnect()
             except Exception:
                 pass
+        self.client = None
+        self.channels = {}
 
     async def run(self):
         """Headless entry point: connect, run until Ctrl+C, then shut down."""

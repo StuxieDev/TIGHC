@@ -5,6 +5,46 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.1.0]
+
+### Added
+- **Always-visible connection status indicator** in the top bar (not just
+  the Run tab) - reflects live connection state ("Not connected" /
+  "Connecting to ws://... ..." / "Connected - no devices found" /
+  "Connected - N channel(s)") no matter which tab is open, updated
+  immediately when you click Connect/Start and every 400ms afterward.
+- **"Disconnect" button** on the Devices tab - cleanly disconnects from
+  Intiface (stopping the engine first if it's running) without restarting
+  the app, so you can reconnect afterward - e.g. after fixing something on
+  the Intiface/repeater side, or to point at a different URL.
+- **Settings now apply immediately.** `core.apply_haptics_config()`
+  persists and applies every global setting (master override, smoothing,
+  panic key, auto-reconnect, background tick) without an app restart. The
+  Intiface WebSocket URL is the one exception - an already-open connection
+  isn't automatically torn down and reopened just because the URL changed,
+  so that one still needs a manual "Connect + Scan" (or Stop then Start).
+
+### Changed
+- The Devices tab's WebSocket URL field is now read-only, sourced from
+  Settings - it was previously a second, independently-editable copy of the
+  same value that could silently diverge from what was actually saved to
+  `haptics_config.json`.
+
+### Fixed
+- Firing "Pulse" on the Test tab's manual channel controls before clicking
+  Start on the Run tab left the channel stuck at the pulsed level forever
+  instead of turning off after its duration. `_do_pulse()` relied on
+  `background_loop()` to reset the channel afterward, which only runs once
+  the engine is actually started. It now resets the channel itself when the
+  engine isn't running, while real in-game pulses (engine running) still
+  get the existing smooth transition instead of an added dip to zero.
+- `HapticsController.shutdown()` didn't clear `self.client`/`self.channels`
+  after disconnecting - harmless when it only ever ran once at app exit,
+  but calling it more than once per run (needed for the new Disconnect
+  button) left stale state: a later "Start" would wrongly think it was
+  still connected, and the device list could keep showing channels from a
+  connection that no longer existed.
+
 ## [3.0.0]
 
 Project layout reorganized so it's no longer ambiguous which file to run.

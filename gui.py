@@ -386,6 +386,8 @@ class App:
         self.connect_btn.pack(side="left", padx=4)
         self.rescan_btn = ttk.Button(top, text="Rescan", command=self._on_rescan_clicked)
         self.rescan_btn.pack(side="left", padx=4)
+        self.disconnect_btn = ttk.Button(top, text="Disconnect", command=self._on_disconnect_clicked, state="disabled")
+        self.disconnect_btn.pack(side="left", padx=4)
 
         # One row per channel - i.e. per motor/capability, not per physical
         # toy - so a dual-motor device shows up as two rows here.
@@ -436,7 +438,40 @@ class App:
             fut.result()
         except Exception as e:
             self._enqueue_log(f"Connect failed: {e}")
+        self.disconnect_btn.config(state="normal" if self.controller.client else "disabled")
         self._refresh_channels_tree()
+
+    def _on_disconnect_clicked(self):
+        """
+        "Disconnect" button handler: stops the engine (if running) and
+        disconnects from Intiface via controller.shutdown() - unlike at app
+        close, this leaves the app running so the user can reconnect
+        afterward (e.g. to point at a different WebSocket URL, or after
+        restarting Intiface itself). Also resets the Run tab's Start/Stop
+        buttons and status, since shutdown() stops the engine along the way.
+        """
+        self.connect_btn.config(state="disabled")
+        self.rescan_btn.config(state="disabled")
+        self.disconnect_btn.config(state="disabled")
+        fut = self.bridge.submit(self.controller.shutdown())
+        fut.add_done_callback(lambda f: self.root.after(0, self._after_disconnect, f))
+
+    def _after_disconnect(self, fut):
+        """Runs on the Tk main thread once shutdown() finishes; see _after_connect for the pattern."""
+        try:
+            fut.result()
+        except Exception as e:
+            self._enqueue_log(f"Disconnect error: {e}")
+        self.connect_btn.config(state="normal")
+        self.rescan_btn.config(state="normal")
+        self.disconnect_btn.config(state="disabled")
+        # shutdown() stops the engine along the way - reflect that on the
+        # Run tab too, same button/status states _after_stop() sets.
+        self.start_btn.config(state="normal")
+        self.stop_btn.config(state="disabled")
+        self.status_var.set("Stopped")
+        self._refresh_channels_tree()
+        self._enqueue_log("Disconnected from Intiface.")
 
     def _on_rescan_clicked(self):
         """"Rescan" button handler - same async pattern as _on_connect_clicked, but calls controller.scan() instead."""
@@ -1763,6 +1798,7 @@ class App:
             ok = False
             self._enqueue_log(f"Start failed: {e}")
         self._refresh_channels_tree()
+        self.disconnect_btn.config(state="normal" if self.controller.client else "disabled")
         if ok:
             self.stop_btn.config(state="normal")
             self.status_var.set("Running")

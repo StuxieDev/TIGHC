@@ -5,7 +5,7 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.0.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.1.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 A haptic controller that links your keyboard/mouse input to a Buttplug/Intiface
@@ -227,9 +227,18 @@ it like a password (don't commit it or share the file).
 `configs/haptics_config.json` covers everything that isn't game- or
 device-specific: the Intiface WebSocket URL, a master randomization
 override, level smoothing, the panic key (forces everything off for a
-moment), auto-reconnect, and the background tick rate. Edit it (by hand or
-via the GUI's Settings tab) and restart the app to pick up changes - these
-are read once at startup.
+moment), auto-reconnect, and the background tick rate. Edit it by hand or
+via the GUI's Settings tab - either way, saving takes effect immediately,
+no restart needed. The one exception is the WebSocket URL: an already-open
+connection isn't automatically torn down and reopened just because the URL
+changed, so click **"Connect + Scan"** (or Stop then Start) after changing
+it to actually reconnect using the new one.
+
+The Devices tab shows this URL (read-only there - Settings is the only
+place that changes it) alongside **Connect + Scan**, **Rescan**, and
+**Disconnect** buttons, and the top bar always shows the current connection
+state ("Not connected" / "Connecting..." / "Connected - N channel(s)") no
+matter which tab you're on.
 
 ## About, versioning, and contact
 
