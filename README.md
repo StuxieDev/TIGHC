@@ -5,8 +5,10 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.2.1** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.3.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
+
+![TIGHC](assets/logo.png)
 
 A haptic controller that links your keyboard/mouse input to a Buttplug/Intiface
 toy. Originally Minecraft-only, it now supports multiple game **profiles**,
@@ -14,7 +16,14 @@ each with its own keybinds, intensity ranges, and per-motor device targeting,
 driven from an interactive GUI. As much as I hate to say it this was made
 with grok, chat gpt, and some claude. (I wish I was better at coding)
 
+Website: https://tighc.stuxie.dev
 Repository: https://github.com/StuxieDev/TIGHC
+
+## Author
+
+<img src="assets/author.png" width="80" height="80" alt="StuxieDev" align="left" style="margin-right: 12px;">
+
+**[StuxieDev](https://github.com/StuxieDev)**
 
 ## Quick start
 
@@ -81,6 +90,7 @@ src/
   version.py                      # version number + get_version()/get_version_tuple()
 cli.py                            # headless CLI entry point (imports src/tighc.py)
 gui.py                            # interactive configurator + launcher (also imports src/tighc.py)
+assets/                           # icon.png/icon.ico (window icon) and logo.png (About tab banner)
 configs/                          # per-install runtime config/state - gitignored, not source
   haptics_config.json             # global settings (connection, panic key, smoothing, ...)
   devices.json                    # remembers a nickname for each connected motor/capability

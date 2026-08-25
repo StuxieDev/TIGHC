@@ -35,10 +35,13 @@ import sv_ttk
 
 from src import tighc
 from src.tighc import (
+    AUTHOR_NAME,
+    AUTHOR_URL,
     PROFILES_DIR,
     PROJECT_NAME,
     PROJECT_SHORT_NAME,
     REPO_URL,
+    WEBSITE_URL,
     DurationRange,
     HapticsController,
     VibeRange,
@@ -75,6 +78,17 @@ HEADER_FONT = ("Segoe UI", 12, "bold")
 # (near-white) and its dark background (near-black) - avoids needing a
 # separate hint color per theme.
 HINT_COLOR = "#8f8f8f"
+# The violet from assets/icon.png and assets/logo.png - the app's brand
+# accent, used for clickable links and other custom-colored highlights.
+# This is *not* sv_ttk's own internal button/selection/focus color, which
+# comes baked into its theme definition (theme/dark.tcl, theme/light.tcl)
+# and isn't something this app overrides - doing that safely would mean
+# patching a third-party theme's Tcl internals rather than just setting a
+# color on our own widgets, which is a much bigger, riskier undertaking
+# than the custom style layer this app otherwise sticks to (see
+# _apply_custom_style_layer).
+ACCENT_COLOR = "#7C5CFF"
+ACCENT_COLOR_ACTIVE = "#694ED9"  # ACCENT_COLOR darkened ~15%, for a button's pressed/hover state
 DEFAULT_THEME = "dark"
 
 
@@ -207,7 +221,8 @@ class App:
         # answer to "is this actually connected right now", regardless of
         # which tab happens to be open.
         self.connection_status_var = tk.StringVar(value="Not connected")
-        ttk.Label(top_bar, textvariable=self.connection_status_var, style="Hint.TLabel").pack(side="left")
+        self.connection_status_label = ttk.Label(top_bar, textvariable=self.connection_status_var, style="Hint.TLabel")
+        self.connection_status_label.pack(side="left")
 
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=PADX // 2, pady=PADY // 2)
@@ -262,6 +277,39 @@ class App:
     def _add_header(frame, text):
         """A bold title at the top of a tab, so each one reads like a distinct page rather than a bare form."""
         ttk.Label(frame, text=text, style="Header.TLabel").pack(fill="x", padx=PADX, pady=(PADY, 0))
+
+    @staticmethod
+    def _make_accent_button(parent, text, command) -> tk.Button:
+        """
+        A classic tk.Button (not ttk) filled with the app's accent color -
+        for the handful of "primary action" buttons (Start, Connect + Scan,
+        the various Save buttons) that should stand out from every other
+        button, which stays sv_ttk's normal flat style.
+
+        ttk.Button can't be recolored this way: sv_ttk ships its own
+        "Accent.TButton" style, but it renders via baked image sprites
+        (`ttk::style element create AccentButton.button image ...` in
+        theme/dark.tcl) rather than a plain color fill, so
+        style.configure(background=...) on it has no visible effect - the
+        sprite's color is fixed at whatever sv_ttk itself chose. A classic
+        Button has none of that; its colors are just widget options.
+        """
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=ACCENT_COLOR,
+            fg="#ffffff",
+            activebackground=ACCENT_COLOR_ACTIVE,
+            activeforeground="#ffffff",
+            disabledforeground="#c9c9c9",
+            relief="flat",
+            borderwidth=0,
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 10),
+            cursor="hand2",
+        )
 
     def _build_scrollable_body(self, parent) -> ttk.Frame:
         """
@@ -383,7 +431,7 @@ class App:
         self.ws_url_var = tk.StringVar(value=self.controller.ws_url)
         ttk.Entry(top, textvariable=self.ws_url_var, width=30, state="readonly").pack(side="left", padx=6)
         ttk.Label(top, text="(set in Settings)", style="Hint.TLabel").pack(side="left", padx=(0, 6))
-        self.connect_btn = ttk.Button(top, text="Connect + Scan", command=self._on_connect_clicked)
+        self.connect_btn = self._make_accent_button(top, text="Connect + Scan", command=self._on_connect_clicked)
         self.connect_btn.pack(side="left", padx=4)
         self.rescan_btn = ttk.Button(top, text="Rescan", command=self._on_rescan_clicked)
         self.rescan_btn.pack(side="left", padx=4)
@@ -608,7 +656,7 @@ class App:
             "<<ComboboxSelected>>",
             lambda e: self._load_profile_into_form(self._profile_id_for_display(self.profile_combo.get())),
         )
-        ttk.Button(top, text="New profile...", command=self._on_new_profile).pack(side="left", padx=4)
+        self._make_accent_button(top, text="New profile...", command=self._on_new_profile).pack(side="left", padx=4)
         ttk.Button(top, text="Reload all from disk", command=self._on_reload_profiles).pack(side="left", padx=4)
 
         meta = ttk.LabelFrame(frame, text="Profile settings")
@@ -633,7 +681,9 @@ class App:
         ttk.Entry(bg_frame, textvariable=self.profile_bg_low_var, width=8).pack(side="left")
         ttk.Entry(bg_frame, textvariable=self.profile_bg_high_var, width=8).pack(side="left", padx=4)
 
-        ttk.Button(meta, text="Save profile", command=self._on_save_profile).grid(row=4, column=1, sticky="w", pady=6)
+        self._make_accent_button(meta, text="Save profile", command=self._on_save_profile).grid(
+            row=4, column=1, sticky="w", pady=6
+        )
 
         # Cover art thumbnail sits in its own column, spanning every row
         # above so it reads as "attached to this profile" rather than just
@@ -1675,7 +1725,9 @@ class App:
         add("Reconnect failure threshold:", "reconnect_threshold", cfg["auto_reconnect"]["failure_threshold"])
         add("Background tick (sec):", "background_tick", cfg["timing"]["background_tick"])
 
-        ttk.Button(body, text="Save settings", command=self._on_save_settings).grid(row=row, column=0, sticky="w", **pad)
+        self._make_accent_button(body, text="Save settings", command=self._on_save_settings).grid(
+            row=row, column=0, sticky="w", **pad
+        )
         row += 1
         ttk.Label(
             body,
@@ -1705,12 +1757,12 @@ class App:
         )
         row += 1
         key_link = ttk.Label(
-            body, text="Get a free key at steamgriddb.com/profile/preferences", foreground="#2563eb", cursor="hand2"
+            body, text="Get a free key at steamgriddb.com/profile/preferences", foreground=ACCENT_COLOR, cursor="hand2"
         )
         key_link.grid(row=row, column=0, columnspan=2, sticky="w", **pad)
         key_link.bind("<Button-1>", lambda _e: webbrowser.open("https://www.steamgriddb.com/profile/preferences"))
         row += 1
-        ttk.Button(body, text="Save cover art settings", command=self._on_save_steamgriddb_settings).grid(
+        self._make_accent_button(body, text="Save cover art settings", command=self._on_save_steamgriddb_settings).grid(
             row=row, column=0, sticky="w", **pad
         )
         row += 1
@@ -1789,7 +1841,7 @@ class App:
 
         btns = ttk.Frame(frame)
         btns.pack(fill="x", padx=PADX, pady=PADY)
-        self.start_btn = ttk.Button(btns, text="Start", command=self._on_start)
+        self.start_btn = self._make_accent_button(btns, text="Start", command=self._on_start)
         self.start_btn.pack(side="left")
         self.stop_btn = ttk.Button(btns, text="Stop", command=self._on_stop, state="disabled")
         self.stop_btn.pack(side="left", padx=6)
@@ -1872,9 +1924,20 @@ class App:
 
     # =============================================================== About tab
     def _build_about_tab(self):
-        """Build the About tab: project blurb, age notice, versioning note, a clickable repo link, and the changelog viewer."""
+        """Build the About tab: logo banner, project blurb, age notice, versioning note, a clickable repo link, and the changelog viewer."""
         frame = self.about_tab
-        self._add_header(frame, PROJECT_NAME)
+
+        # Logo banner instead of the plain-text header every other tab
+        # uses - assets/logo.png already bakes in its own solid dark
+        # background (not transparent), so it displays correctly regardless
+        # of the active light/dark theme without needing any re-theming.
+        # Falls back to the plain text header if the asset is ever missing.
+        logo_path = Path(__file__).with_name("assets") / "logo.png"
+        if logo_path.exists():
+            self._about_logo_image = tk.PhotoImage(file=str(logo_path))  # kept as an attribute so it isn't garbage-collected
+            ttk.Label(frame, image=self._about_logo_image).pack(anchor="w", padx=PADX, pady=(PADY, 0))
+        else:
+            self._add_header(frame, PROJECT_NAME)
 
         body = ttk.Frame(frame)
         body.pack(fill="both", expand=True, padx=PADX, pady=PADY)
@@ -1903,14 +1966,34 @@ class App:
             style="Hint.TLabel",
         ).pack(anchor="w")
 
-        contact = ttk.Frame(body)
-        contact.pack(anchor="w", pady=(2, 10))
-        ttk.Label(contact, text="Repository: ").pack(side="left")
+        website_row = ttk.Frame(body)
+        website_row.pack(anchor="w", pady=(2, 0))
+        ttk.Label(website_row, text="Website: ").pack(side="left")
         # ttk.Label has no built-in hyperlink widget, so this fakes one: a
         # colored, hand-cursor label that opens the URL in the OS browser.
-        repo_link = ttk.Label(contact, text=REPO_URL, foreground="#2563eb", cursor="hand2")
+        website_link = ttk.Label(website_row, text=WEBSITE_URL, foreground=ACCENT_COLOR, cursor="hand2")
+        website_link.pack(side="left")
+        website_link.bind("<Button-1>", lambda _e: webbrowser.open(WEBSITE_URL))
+
+        contact = ttk.Frame(body)
+        contact.pack(anchor="w", pady=(2, 0))
+        ttk.Label(contact, text="Repository: ").pack(side="left")
+        repo_link = ttk.Label(contact, text=REPO_URL, foreground=ACCENT_COLOR, cursor="hand2")
         repo_link.pack(side="left")
         repo_link.bind("<Button-1>", lambda _e: webbrowser.open(REPO_URL))
+
+        author_row = ttk.Frame(body)
+        author_row.pack(anchor="w", pady=(2, 10))
+        avatar_path = Path(__file__).with_name("assets") / "author.png"
+        if avatar_path.exists():
+            avatar_full = tk.PhotoImage(file=str(avatar_path))
+            factor = max(1, avatar_full.width() // 32)
+            self._about_avatar_image = avatar_full.subsample(factor, factor)  # kept as an attribute so it isn't garbage-collected
+            ttk.Label(author_row, image=self._about_avatar_image).pack(side="left", padx=(0, 6))
+        ttk.Label(author_row, text="Author: ").pack(side="left")
+        author_link = ttk.Label(author_row, text=AUTHOR_NAME, foreground=ACCENT_COLOR, cursor="hand2")
+        author_link.pack(side="left")
+        author_link.bind("<Button-1>", lambda _e: webbrowser.open(AUTHOR_URL))
 
         changelog_header = ttk.Frame(body)
         changelog_header.pack(fill="x", pady=(4, 4))
@@ -1979,11 +2062,16 @@ class App:
         pattern as _poll_log_queue): refreshes the Run tab's "Live status"
         label with the current active profile and every channel's last-sent
         level, and the top bar's always-visible connection indicator (see
-        _build_ui). Reads controller/channel attributes directly rather than
-        through a queue - safe enough for a display-only read of simple
-        values (floats, a profile reference) under the GIL, unlike posting
-        a mutating command the other direction.
+        _build_ui) - including its color, which switches to the accent
+        color while actually connected instead of staying the neutral hint
+        gray, so the one indicator you're most likely to glance at doubles
+        as a use of the brand color for "everything's good" feedback.
+        Reads controller/channel attributes directly rather than through a
+        queue - safe enough for a display-only read of simple values
+        (floats, a profile reference) under the GIL, unlike posting a
+        mutating command the other direction.
         """
+        is_connected = bool(self.controller.client)
         if self.controller.channels:
             active = self.controller.active_profile.name if self.controller.active_profile else "(none - idle)"
             lines = [f"Active profile: {active}"]
@@ -1993,9 +2081,8 @@ class App:
             self.connection_status_var.set(f"Connected - {len(self.controller.channels)} channel(s)")
         else:
             self.levels_label.config(text="(not connected)")
-            self.connection_status_var.set(
-                "Connected - no devices found" if self.controller.client else "Not connected"
-            )
+            self.connection_status_var.set("Connected - no devices found" if is_connected else "Not connected")
+        self.connection_status_label.config(foreground=ACCENT_COLOR if is_connected else HINT_COLOR)
         self._status_poll_id = self.root.after(400, self._poll_status)
 
     def _on_close(self):
@@ -2094,6 +2181,18 @@ def main():
     """Module entry point for `python gui.py`: show the age gate first, and only build/run the real App if it's accepted."""
     root = tk.Tk()
     root.withdraw()  # stay hidden until the age gate is cleared
+
+    # App icon - PNG loads natively via tk.PhotoImage (no Pillow needed at
+    # runtime; that was only ever a one-off dev-time tool used to generate
+    # assets/icon.png itself). Setting it on `root` with default=True makes
+    # every Toplevel that doesn't set its own inherit it too, including the
+    # age gate below - without this, every window just shows Tk's stock
+    # feather icon instead of anything TIGHC-specific.
+    icon_path = Path(__file__).with_name("assets") / "icon.png"
+    if icon_path.exists():
+        root.icon_image = tk.PhotoImage(file=str(icon_path))  # kept as an attribute so it isn't garbage-collected
+        root.iconphoto(True, root.icon_image)
+
     # Apply the same sv_ttk look the main App uses (App._apply_style() will
     # re-apply it once App is constructed below) so the age gate isn't stuck
     # looking like a dated stock-Tk dialog while everything after it is

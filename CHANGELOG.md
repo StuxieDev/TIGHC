@@ -5,6 +5,39 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.3.0]
+
+### Added
+- **App icon and logo** (`assets/icon.png`/`icon.ico`, `assets/logo.png`) -
+  TIGHC previously used Tk's stock feather icon everywhere, since `gui.py`
+  never called `iconphoto()`/`iconbitmap()`. `gui.py` now sets the icon on
+  the root window (with `default=True`, so the age gate and every other
+  window inherit it too), and the About tab shows the logo banner instead
+  of a plain-text header. Generated as a simple "pulse rings" mark, since
+  that reads clearly as "haptics" even shrunk to a 16px titlebar icon.
+- **Brand accent color** (`#7C5CFF`, the icon/logo's violet) threaded
+  through the GUI: the two hyperlink-style labels (SteamGridDB key link,
+  repository link), a new About tab website link, and the top bar's
+  connection status indicator (now switches to the accent color while
+  connected, instead of staying the neutral hint gray). The app's primary
+  actions (Start, Connect + Scan, New profile..., and the Save buttons) are
+  now rendered with a new `_make_accent_button()` helper using a classic
+  `tk.Button` rather than `ttk.Button` - sv_ttk's own `Accent.TButton`
+  style renders via baked image sprites
+  (`ttk::style element create AccentButton.button image ...`), so a normal
+  `style.configure(background=...)` on it has no visible effect; a classic
+  Button's colors are plain widget options instead.
+- **Website URL** (`https://tighc.stuxie.dev`) added as `WEBSITE_URL` in
+  `src/metadata.py`, linked from the About tab and the README.
+- **Author credit**: `AUTHOR_NAME`/`AUTHOR_URL` added to `src/metadata.py`
+  (`StuxieDev`, https://github.com/StuxieDev), re-exported via
+  `src/tighc.py`. Shown in `cli.py`'s startup banner ("... v3.3.0 - by
+  StuxieDev"), in the GUI's About tab (name + a small avatar, both linking
+  to the GitHub profile), and in the README (name + avatar, downloaded from
+  `https://github.com/stuxiedev.png` to `assets/author.png`). The same
+  avatar and README section were also added to the TIGHC-Profiles and
+  TIGHC-Website repos for consistency.
+
 ## [3.2.1]
 
 ### Fixed

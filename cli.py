@@ -11,12 +11,12 @@ Prefer an interactive configurator? Use `python gui.py` instead.
 
 import asyncio
 
-from src.tighc import HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, __version__
+from src.tighc import AUTHOR_NAME, HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, __version__
 
 
 def _confirm_age() -> bool:
     """Self-attestation age gate for the headless CLI - the GUI has its own dialog equivalent (see gui.py)."""
-    print(f"\n{PROJECT_NAME} ({PROJECT_SHORT_NAME}) v{__version__}")
+    print(f"\n{PROJECT_NAME} ({PROJECT_SHORT_NAME}) v{__version__} - by {AUTHOR_NAME}")
     print("This software connects to and controls adult haptic/sex toy devices based on")
     print("your keyboard and mouse input while gaming. Intended for use only by adults")
     print("aged 18 or older.")
