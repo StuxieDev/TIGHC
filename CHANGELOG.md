@@ -5,6 +5,17 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.3.1]
+
+### Fixed
+- **Startup crash: `Failed to load profile 'assets'`** - the `profiles`
+  submodule now ships its own `assets/` folder (icon/logo images for the
+  TIGHC-Profiles repo itself), which `load_profiles()` was treating as a
+  profile folder and rejecting for lacking `keybinds.json`/`ranges.json`.
+  `load_profiles()` now skips any folder under `profiles/` that has
+  *neither* file - not a profile at all - while still raising loudly on a
+  folder that has only one of the two, which is a genuinely broken profile.
+
 ## [3.3.0]
 
 ### Added

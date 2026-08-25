@@ -303,6 +303,12 @@ def load_profiles() -> dict:
     for entry in sorted(PROFILES_DIR.iterdir()):
         if not entry.is_dir():
             continue
+        # Folders with neither file (e.g. profiles/assets/, holding the
+        # submodule's own README images) aren't profiles at all - skip them.
+        # A folder with only one of the two files is a genuinely broken
+        # profile and should still fail loudly below.
+        if not (entry / "keybinds.json").exists() and not (entry / "ranges.json").exists():
+            continue
         try:
             profile = _load_profile(entry)
         except (OSError, ValueError, KeyError) as e:
