@@ -5,6 +5,20 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.1.1]
+
+### Fixed
+- The Profiles tab's and Test tab's profile pickers displayed each
+  profile's raw folder id (e.g. `cult_of_the_lamb`) instead of its actual
+  display name (`"Cult of the Lamb"`, already set correctly in every
+  profile's `keybinds.json`) - the dropdowns were populated straight from
+  `self.controller.profiles.keys()` rather than each profile's `.name`.
+  Added `_profile_display_name()`/`_profile_id_for_display()` to translate
+  between the two everywhere a picker's selection is read or set, since
+  the rest of the code keys profiles by id, not by their display name.
+  `cli.py`'s startup banner and the engine's own profile-switch log
+  already used `.name` correctly - only the GUI's pickers had this bug.
+
 ## [3.1.0]
 
 ### Added

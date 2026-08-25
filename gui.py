@@ -595,7 +595,10 @@ class App:
         ttk.Label(top, text="Profile:").pack(side="left")
         self.profile_combo = ttk.Combobox(top, state="readonly", width=25)
         self.profile_combo.pack(side="left", padx=6)
-        self.profile_combo.bind("<<ComboboxSelected>>", lambda e: self._load_profile_into_form(self.profile_combo.get()))
+        self.profile_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda e: self._load_profile_into_form(self._profile_id_for_display(self.profile_combo.get())),
+        )
         ttk.Button(top, text="New profile...", command=self._on_new_profile).pack(side="left", padx=4)
         ttk.Button(top, text="Reload all from disk", command=self._on_reload_profiles).pack(side="left", padx=4)
 
@@ -651,17 +654,46 @@ class App:
             btns, text="(remember to Save profile above after changing bindings)", style="Hint.TLabel"
         ).pack(side="left", padx=12)
 
+    def _profile_display_name(self, profile_id: str) -> str:
+        """
+        Display text for one profile in the Profiles/Test tab pickers -
+        the profile's own `name` from keybinds.json (e.g. "Cult of the
+        Lamb"), not the raw folder id (e.g. "cult_of_the_lamb") the picker
+        widgets are otherwise keyed by everywhere else in this file. Falls
+        back to the id itself if it's somehow not loaded (shouldn't
+        normally happen).
+        """
+        profile = self.controller.profiles.get(profile_id)
+        return profile.name if profile else profile_id
+
+    def _profile_id_for_display(self, display_name: str) -> str:
+        """
+        Reverse of _profile_display_name(): given a picker's currently-
+        shown text, find which profile id it corresponds to. Falls back to
+        treating the text itself as an id if nothing matches (e.g. the
+        picker is empty, or - extremely unlikely - two profiles share a
+        display name and this just picks whichever iterates first).
+        """
+        for profile_id, profile in self.controller.profiles.items():
+            if profile.name == display_name:
+                return profile_id
+        return display_name
+
     def _refresh_profile_list(self):
         """
         Repopulate both the Profiles tab's and the Test tab's profile
         dropdowns from self.controller.profiles, keeping the current
         selection if it's still valid (falling back to the alphabetically
         first profile otherwise). Called after anything that adds, removes,
-        or reloads profiles.
+        or reloads profiles. The pickers display each profile's `name`
+        (see _profile_display_name), while every other piece of code in
+        this file keys off the raw id - _profile_id_for_display() bridges
+        the two wherever a picker's current selection needs to be read.
         """
         ids = sorted(self.controller.profiles.keys())
-        self.profile_combo["values"] = ids
-        self.test_profile_combo["values"] = ids
+        display_names = sorted(self._profile_display_name(pid) for pid in ids)
+        self.profile_combo["values"] = display_names
+        self.test_profile_combo["values"] = display_names
         if not ids:
             self.current_profile_id = None
             self._refresh_test_bindings()
@@ -669,10 +701,10 @@ class App:
             return
         if self.current_profile_id not in ids:
             self.current_profile_id = ids[0]
-        self.profile_combo.set(self.current_profile_id)
+        self.profile_combo.set(self._profile_display_name(self.current_profile_id))
         self._load_profile_into_form(self.current_profile_id)
-        if self.test_profile_combo.get() not in ids:
-            self.test_profile_combo.set(self.current_profile_id)
+        if self._profile_id_for_display(self.test_profile_combo.get()) not in ids:
+            self.test_profile_combo.set(self._profile_display_name(self.current_profile_id))
         self._refresh_test_bindings()
         self._refresh_test_artwork()
 
@@ -1370,7 +1402,7 @@ class App:
 
     def _refresh_test_artwork(self):
         """Same idea as _refresh_profile_artwork, but for the Test tab's small toolbar-row thumbnail next to its own profile picker."""
-        profile = self.controller.profiles.get(self.test_profile_combo.get())
+        profile = self.controller.profiles.get(self._profile_id_for_display(self.test_profile_combo.get()))
         if not profile:
             self.test_artwork_label.config(image="", text="")
             return
@@ -1378,7 +1410,7 @@ class App:
 
         def on_done(path):
             """Runs on the Tk main thread once the fetch resolves; see the sibling on_done in _refresh_profile_artwork for the pattern."""
-            if self.test_profile_combo.get() != requested_profile_id:
+            if self._profile_id_for_display(self.test_profile_combo.get()) != requested_profile_id:
                 return
             if path is None:
                 self.test_artwork_label.config(image="", text="")
@@ -1465,7 +1497,7 @@ class App:
             child.destroy()
         self._test_binding_widgets = {}
 
-        profile_id = self.test_profile_combo.get()
+        profile_id = self._profile_id_for_display(self.test_profile_combo.get())
         profile = self.controller.profiles.get(profile_id)
         if not profile:
             ttk.Label(self.test_bindings_container, text="(no profile selected)").pack(anchor="w")
@@ -1532,7 +1564,7 @@ class App:
         no profile is selected, silently un-checks itself and prompts
         instead of pinning nothing.
         """
-        profile = self.controller.profiles.get(self.test_profile_combo.get())
+        profile = self.controller.profiles.get(self._profile_id_for_display(self.test_profile_combo.get()))
         if self.test_pin_var.get():
             if not profile:
                 messagebox.showinfo("Test mode", "Select a profile to pin first.")

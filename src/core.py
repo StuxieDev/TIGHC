@@ -87,7 +87,7 @@ from pynput import keyboard, mouse
 PROJECT_NAME = "The Intiface Game Haptics Controller"
 PROJECT_SHORT_NAME = "TIGHC"
 REPO_URL = "https://github.com/StuxieDev/TIGHC"
-__version__ = "3.1.0"
+__version__ = "3.1.1"
 
 # =============================================== FILESYSTEM LAYOUT ==========================================
 # core.py lives at <repo root>/src/core.py, so every path below is resolved
