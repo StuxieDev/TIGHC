@@ -5,6 +5,18 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.3.2]
+
+### Fixed
+- **`assets/icon.png`, `icon.ico`, and `logo.png` had an opaque dark
+  (`#1E1E1E`) rounded-rect fill baked in** instead of a transparent
+  background, so they showed a visible dark box wherever the app chrome
+  wasn't that exact color. Removed the fill via a color-to-alpha un-blend
+  (recovers true per-pixel alpha from the anti-aliased blend against the
+  fill color, rather than a naive chroma key that would leave a dark
+  fringe on the ring edges), and regenerated `icon.ico`'s multi-resolution
+  frames from the fixed `icon.png`.
+
 ## [3.3.1]
 
 ### Fixed
