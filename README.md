@@ -5,7 +5,7 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.1.1** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.2.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 A haptic controller that links your keyboard/mouse input to a Buttplug/Intiface
@@ -68,9 +68,19 @@ it's a roadmap item, not something available yet.
 
 ```
 src/
-  core.py                         # engine + cover-art library - not meant to be run directly
-cli.py                            # headless CLI entry point (imports src/core.py)
-gui.py                            # interactive configurator + launcher (also imports src/core.py)
+  tighc.py                        # re-export facade over the modules below - not meant to be run directly
+  engine.py                       # HapticsController - the engine itself
+  haptics_config.py               # configs/haptics_config.json load/apply + derived settings
+  steamgriddb.py                  # SteamGridDB cover-art fetching/caching
+  profiles.py                     # profiles/<id>/{keybinds,ranges}.json loading
+  devices.py                      # configs/devices.json registry + per-channel state
+  input.py                        # keyboard/mouse normalization, focused-window lookup
+  ranges.py                       # VibeRange/DurationRange/PulseSpec
+  paths.py                        # filesystem layout (configs/, profiles/, artwork_cache/)
+  metadata.py                     # project name/repo URL
+  version.py                      # version number + get_version()/get_version_tuple()
+cli.py                            # headless CLI entry point (imports src/tighc.py)
+gui.py                            # interactive configurator + launcher (also imports src/tighc.py)
 configs/                          # per-install runtime config/state - gitignored, not source
   haptics_config.json             # global settings (connection, panic key, smoothing, ...)
   devices.json                    # remembers a nickname for each connected motor/capability

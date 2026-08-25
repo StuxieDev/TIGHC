@@ -1,12 +1,12 @@
 """The Intiface Game Haptics Controller (TIGHC) - interactive GUI.
 
-Tkinter configurator and launcher for src/core.py.
+Tkinter configurator and launcher for src/tighc.py.
 
 Connect to Intiface, scan for devices, assign friendly nicknames to
 individual motors/capabilities, build game profiles (keybinds + ranges +
 which device each keybind drives), tweak global settings, and start/stop
 the haptics engine - all from one window. Everything you do here is written
-to the same JSON files src/core.py reads (configs/haptics_config.json,
+to the same JSON files src/tighc.py reads (configs/haptics_config.json,
 configs/devices.json, profiles/<id>/{keybinds,ranges}.json), so hand-editing
 those files and using this GUI are fully interchangeable.
 
@@ -33,8 +33,8 @@ from tkinter import messagebox, scrolledtext, simpledialog, ttk
 # Install with: pip install sv_ttk
 import sv_ttk
 
-from src import core
-from src.core import (
+from src import tighc
+from src.tighc import (
     PROFILES_DIR,
     PROJECT_NAME,
     PROJECT_SHORT_NAME,
@@ -131,7 +131,7 @@ class App:
 
         self.log_queue = queue.Queue()
         self.bridge = AsyncBridge()
-        self.controller = HapticsController(core.INTIFACE_WS, dict(core.PROFILES), log_fn=self._enqueue_log)
+        self.controller = HapticsController(tighc.INTIFACE_WS, dict(tighc.PROFILES), log_fn=self._enqueue_log)
 
         self.current_profile_id = None
         self.current_bindings = []  # editable plain-dict copies of the loaded profile's bindings
@@ -297,6 +297,7 @@ class App:
         # canvas - bind_all/unbind_all on hover keeps the wheel from being
         # hijacked by whichever scrollable tab happened to build last.
         def _on_wheel(event):
+            """<MouseWheel> handler: Windows/macOS report a signed delta in multiples of 120, so dividing by it gives whole scroll "clicks"."""
             canvas.yview_scroll(int(-event.delta / 120), "units")
 
         canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", _on_wheel))
@@ -315,7 +316,7 @@ class App:
         Load a cached artwork PNG into a tk.PhotoImage, downscaled to
         roughly ARTWORK_THUMBNAIL_WIDTH wide. tk.PhotoImage only supports
         PNG/GIF/PPM natively (no Pillow dependency needed, since
-        core.py's cover-art fetcher only ever downloads PNGs) and can only shrink by
+        tighc.py's cover-art fetcher only ever downloads PNGs) and can only shrink by
         integer factors via subsample() - fine for a small thumbnail, if
         slightly cruder than a real resize.
         """
@@ -344,14 +345,14 @@ class App:
     def _fetch_artwork_async(self, profile_id, profile_name, override_id, override_grid_id, on_done, force_refresh=False):
         """
         Fetch (or load from cache) one profile's artwork on a daemon
-        thread - core.get_profile_artwork() does blocking network
+        thread - tighc.get_profile_artwork() does blocking network
         I/O, which must not run on the Tk main thread - then hand the
         resulting Path (or None) back to `on_done` via root.after so it's
         safe to touch widgets from there.
         """
         def worker():
             """Runs on the background thread: do the blocking fetch, then hand off to on_done via root.after (thread-safe)."""
-            path = core.get_profile_artwork(
+            path = tighc.get_profile_artwork(
                 profile_id,
                 profile_name,
                 override_id,
@@ -712,7 +713,7 @@ class App:
     def _binding_to_editable(binding: dict) -> dict:
         """
         Convert one of Profile.bindings' parsed dicts (which hold VibeRange/
-        DurationRange/frozenset objects, as produced by core._load_profile)
+        DurationRange/frozenset objects, as produced by tighc._load_profile)
         into a plain, JSON-friendly, Tkinter-Var-friendly dict that the
         bindings table and the add/edit dialog can work with directly.
         The reverse conversion happens in _compose_profile_files().
@@ -755,7 +756,7 @@ class App:
         """
         Kick off an async fetch of the current profile's cover art and
         update the thumbnail once it resolves (or show "(no cover art)" if
-        it can't be found/fetched/disabled - see core.get_profile_artwork
+        it can't be found/fetched/disabled - see tighc.get_profile_artwork
         for exactly what that covers). Called whenever the selected profile
         changes, and after cover-art settings or the profile's
         steamgriddb_id are changed.
@@ -812,7 +813,7 @@ class App:
         new_id = simpledialog.askstring("New profile", "Folder id (letters/numbers/underscores):", parent=self.root)
         if not new_id:
             return
-        new_id = core._slugify(new_id)
+        new_id = tighc._slugify(new_id)
         new_dir = PROFILES_DIR / new_id
         if new_dir.exists():
             messagebox.showerror("New profile", f"profiles/{new_id} already exists.")
@@ -829,8 +830,8 @@ class App:
             keybinds = json.loads((template_dir / "keybinds.json").read_text(encoding="utf-8"))
             ranges = json.loads((template_dir / "ranges.json").read_text(encoding="utf-8"))
         else:
-            keybinds = copy.deepcopy(core.DEFAULT_MINECRAFT_KEYBINDS)
-            ranges = copy.deepcopy(core.DEFAULT_MINECRAFT_RANGES)
+            keybinds = copy.deepcopy(tighc.DEFAULT_MINECRAFT_KEYBINDS)
+            ranges = copy.deepcopy(tighc.DEFAULT_MINECRAFT_RANGES)
         keybinds["name"] = display_name
         keybinds["window_titles"] = [window_title.lower()]
 
@@ -838,7 +839,7 @@ class App:
         (new_dir / "keybinds.json").write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
         (new_dir / "ranges.json").write_text(json.dumps(ranges, indent=2), encoding="utf-8")
         try:
-            profile = core._load_profile(new_dir)
+            profile = tighc._load_profile(new_dir)
         except Exception as e:
             shutil.rmtree(new_dir)
             messagebox.showerror("New profile", f"Failed to create profile: {e}")
@@ -922,7 +923,7 @@ class App:
         "Save profile" button handler. Snapshots the current on-disk JSON
         first, writes the new keybinds.json/ranges.json from the form, then
         immediately tries to load them back through the real engine parser
-        (core._load_profile) - if that fails, the snapshot is restored
+        (tighc._load_profile) - if that fails, the snapshot is restored
         so a bad edit never leaves the profile folder in a broken state,
         and the error is shown to the user instead of only surfacing the
         next time the app starts. On success, refreshes both the
@@ -945,7 +946,7 @@ class App:
         keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
         ranges_path.write_text(json.dumps(ranges, indent=2), encoding="utf-8")
         try:
-            profile = core._load_profile(profile_dir)
+            profile = tighc._load_profile(profile_dir)
         except Exception as e:
             keybinds_path.write_text(backup[0], encoding="utf-8")
             ranges_path.write_text(backup[1], encoding="utf-8")
@@ -979,7 +980,7 @@ class App:
         keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
 
         try:
-            profile = core._load_profile(profile_dir)
+            profile = tighc._load_profile(profile_dir)
         except Exception as e:
             messagebox.showerror("Cover art", f"Failed to apply: {e}")
             return
@@ -1033,7 +1034,7 @@ class App:
         if not self.current_profile_id:
             return
         profile = self.controller.profiles[self.current_profile_id]
-        config = core.load_steamgriddb_config()
+        config = tighc.load_steamgriddb_config()
         if not config.get("enabled") or not config.get("api_key"):
             messagebox.showinfo("Cover art", "Enable cover art and set an API key in Settings first.")
             return
@@ -1057,7 +1058,7 @@ class App:
             """"Search" button handler (also called once up front to pre-populate results for the profile's own name)."""
             nonlocal results
             try:
-                results = core.search_game(config["api_key"], term_var.get().strip())
+                results = tighc.search_game(config["api_key"], term_var.get().strip())
             except Exception as e:
                 messagebox.showerror("Search failed", str(e), parent=dialog)
                 return
@@ -1104,7 +1105,7 @@ class App:
         if not self.current_profile_id:
             return
         profile = self.controller.profiles[self.current_profile_id]
-        config = core.load_steamgriddb_config()
+        config = tighc.load_steamgriddb_config()
         if not config.get("enabled") or not config.get("api_key"):
             messagebox.showinfo("Cover art", "Enable cover art and set an API key in Settings first.")
             return
@@ -1130,14 +1131,14 @@ class App:
             """
             result = {"game_id": None, "total": 0, "previews": [], "error": None}
             try:
-                game_id = core._resolve_game_id(api_key, profile.name, profile.steamgriddb_id)
+                game_id = tighc._resolve_game_id(api_key, profile.name, profile.steamgriddb_id)
                 result["game_id"] = game_id
                 if game_id is not None:
-                    grids = core.get_grids(api_key, game_id)
+                    grids = tighc.get_grids(api_key, game_id)
                     result["total"] = len(grids)
                     for grid in grids[:GRID_PICKER_LIMIT]:
                         try:
-                            image_bytes = core.download_image_bytes(grid["url"])
+                            image_bytes = tighc.download_image_bytes(grid["url"])
                         except Exception:
                             continue  # one bad image shouldn't sink the whole picker
                         result["previews"].append((grid, image_bytes))
@@ -1175,6 +1176,7 @@ class App:
             def make_choose(grid_id, is_default):
                 """Selecting the default tile clears the override entirely, rather than redundantly pinning the id it'd already resolve to."""
                 def choose():
+                    """The actual button `command` - captures `grid_id`/`is_default` from the enclosing make_choose() call."""
                     self._set_profile_steamgriddb_grid_id(self.current_profile_id, None if is_default else grid_id)
                     dialog.destroy()
                 return choose
@@ -1346,7 +1348,7 @@ class App:
     # game running: drive a channel directly (bypassing profiles/keybinds
     # entirely), or simulate a profile's keybinds being pressed (exercising
     # the same code path real input does, via HapticsController.test_pulse()
-    # and a "pinned" active profile - see test_profile_override in src/core.py).
+    # and a "pinned" active profile - see test_profile_override in src/tighc.py).
     def _build_test_tab(self):
         """
         Build the Test tab: a profile picker + pin toggle + "Stop all
@@ -1604,7 +1606,7 @@ class App:
         """
         Build the Settings tab: one form field/checkbox per
         haptics_config.json key, pre-filled from load_haptics_config().
-        Saving calls core.apply_haptics_config(), which takes effect
+        Saving calls tighc.apply_haptics_config(), which takes effect
         immediately (see _on_save_settings) - the WebSocket URL is the one
         exception, needing a manual reconnect rather than an app restart.
         """
@@ -1682,7 +1684,7 @@ class App:
         )
         row += 1
 
-        sgdb_cfg = core.load_steamgriddb_config()
+        sgdb_cfg = tighc.load_steamgriddb_config()
         self.sgdb_enabled_var = tk.BooleanVar(value=sgdb_cfg.get("enabled", False))
         ttk.Checkbutton(body, text="Show profile cover art (fetched from SteamGridDB)", variable=self.sgdb_enabled_var).grid(
             row=row, column=0, columnspan=2, sticky="w", **pad
@@ -1712,7 +1714,7 @@ class App:
 
     def _on_save_steamgriddb_settings(self):
         """"Save cover art settings" button handler: persist to steamgriddb_config.json and immediately try to (re)load artwork."""
-        core.save_steamgriddb_config({"enabled": self.sgdb_enabled_var.get(), "api_key": self.sgdb_api_key_var.get().strip()})
+        tighc.save_steamgriddb_config({"enabled": self.sgdb_enabled_var.get(), "api_key": self.sgdb_api_key_var.get().strip()})
         self._enqueue_log("Cover art settings saved.")
         self._refresh_profile_artwork()
         self._refresh_test_artwork()
@@ -1721,7 +1723,7 @@ class App:
         """
         "Save settings" button handler: assemble a full haptics_config.json-
         shaped dict from every form field and hand it to
-        core.apply_haptics_config(), which persists it and updates the
+        tighc.apply_haptics_config(), which persists it and updates the
         engine's live settings in place - no restart needed. Validates the
         master-range values form a valid VibeRange first; unlike profile
         saving, there's no separate read-back-through-the-real-parser step
@@ -1758,7 +1760,7 @@ class App:
             return
 
         ws_url_changed = cfg["intiface_ws"] != self.controller.ws_url
-        core.apply_haptics_config(cfg)
+        tighc.apply_haptics_config(cfg)
         # apply_haptics_config() can't itself force an already-open
         # connection to move to a new URL - update the live controller's
         # ws_url too, so at least the *next* connect (a manual "Connect +

@@ -1,7 +1,7 @@
 """The Intiface Game Haptics Controller (TIGHC) - headless CLI entry point.
 
 Run this to start the engine from the command line: `python cli.py`. Age
-gate, then builds a controller from src/core.py's module-level config/
+gate, then builds a controller from src/tighc.py's module-level config/
 profiles (configs/haptics_config.json, configs/devices.json, profiles/) and
 runs it until Ctrl+C. No GUI - hand-edit the JSON files and restart to
 change anything.
@@ -11,7 +11,7 @@ Prefer an interactive configurator? Use `python gui.py` instead.
 
 import asyncio
 
-from src.core import HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, __version__
+from src.tighc import HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, __version__
 
 
 def _confirm_age() -> bool:
@@ -28,7 +28,7 @@ def _confirm_age() -> bool:
 
 
 async def main():
-    """Age gate, then build a controller from src/core.py's module-level config/profiles and run it."""
+    """Age gate, then build a controller from src/tighc.py's module-level config/profiles and run it."""
     if not _confirm_age():
         print("Age not confirmed - exiting.")
         return

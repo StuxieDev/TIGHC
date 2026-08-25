@@ -5,6 +5,34 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.2.0]
+
+### Changed
+- **`src/core.py` (1600+ lines) split into focused modules** - `paths.py`
+  (filesystem layout), `metadata.py` (project name/repo URL), `version.py`
+  (version number + `get_version()`/`get_version_tuple()`), `ranges.py`
+  (`VibeRange`/`DurationRange`/`PulseSpec`), `haptics_config.py`
+  (`configs/haptics_config.json` load/apply + derived settings),
+  `devices.py` (`configs/devices.json` registry + `DeviceChannel`),
+  `profiles.py` (profile loading), `input.py` (keyboard/mouse handling +
+  focused-window lookup), `engine.py` (`HapticsController` itself), and
+  `steamgriddb.py` (cover-art fetching, unchanged from before the earlier
+  merge into `core.py`). The one thing that had to be done carefully:
+  `apply_haptics_config()` reassigns its module's globals via `global` for
+  live-reload (see 3.1.0) - `engine.py` reads those through
+  `haptics_config.NAME` (module-qualified), not a `from ... import NAME`
+  copy, since only the former keeps seeing updates across the new module
+  boundary. Verified this still works end-to-end after the split.
+- **Renamed `src/core.py` to `src/tighc.py`** - once it became a pure
+  re-export facade over the modules above rather than where the
+  implementation lived, "core" no longer described it well. `cli.py` and
+  `gui.py` now import from `src.tighc` instead of `src.core`; nothing else
+  about how they use it changed, since the facade re-exports the exact same
+  names as before.
+- Every module in `src/` now refuses to run directly (`python src/engine.py`,
+  etc.), printing a pointer to `cli.py`/`gui.py` instead - previously only
+  `core.py` (now `tighc.py`) had this guard.
+
 ## [3.1.1]
 
 ### Fixed
