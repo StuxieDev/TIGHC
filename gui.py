@@ -307,7 +307,7 @@ class App:
             cursor="hand2",
         )
 
-    def _build_scrollable_body(self, parent) -> ttk.Frame:
+    def _build_scrollable_body(self, parent, padding=None) -> ttk.Frame:
         """
         Wrap a tab's content area in a vertically-scrollable canvas and
         return the inner ttk.Frame to build the tab's real content into -
@@ -324,7 +324,7 @@ class App:
         """
         canvas = tk.Canvas(parent, highlightthickness=0, bg=self._text_widget_colors()["bg"])
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        body = ttk.Frame(canvas, padding=(PADX, PADY))
+        body = ttk.Frame(canvas, padding=padding if padding is not None else (PADX, PADY))
 
         body.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
         body_window = canvas.create_window((0, 0), window=body, anchor="nw")
@@ -655,7 +655,9 @@ class App:
         self._make_accent_button(top, text="New profile...", command=self._on_new_profile).pack(side="left", padx=4)
         ttk.Button(top, text="Reload all from disk", command=self._on_reload_profiles).pack(side="left", padx=4)
 
-        meta = ttk.LabelFrame(frame, text="Profile settings")
+        body = self._build_scrollable_body(frame, padding=(0, 0))
+
+        meta = ttk.LabelFrame(body, text="Profile settings")
         meta.pack(fill="x", padx=8, pady=(0, 8))
         ttk.Label(meta, text="Display name:").grid(row=0, column=0, sticky="w", padx=4, pady=2)
         self.profile_name_var = tk.StringVar()
@@ -698,13 +700,18 @@ class App:
         ttk.Button(artwork_frame, text="Choose image...", command=self._on_choose_cover_image).pack(pady=(4, 0))
         self._profile_artwork_image = None  # keep a reference - PhotoImage is garbage-collected otherwise
 
-        bindings_frame = ttk.LabelFrame(frame, text="Bindings")
-        bindings_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self.bindings_tree = ttk.Treeview(bindings_frame, columns=BINDING_COLUMNS, show="headings", selectmode="browse")
+        bindings_frame = ttk.LabelFrame(body, text="Bindings")
+        bindings_frame.pack(fill="x", padx=8, pady=(0, 8))
+        tree_row = ttk.Frame(bindings_frame)
+        tree_row.pack(fill="x", side="top")
+        self.bindings_tree = ttk.Treeview(tree_row, columns=BINDING_COLUMNS, show="headings", selectmode="browse", height=8)
         for col in BINDING_COLUMNS:
             self.bindings_tree.heading(col, text=BINDING_HEADERS[col])
             self.bindings_tree.column(col, width=BINDING_WIDTHS[col], anchor="w")
-        self.bindings_tree.pack(fill="both", expand=True, side="top")
+        bindings_vsb = ttk.Scrollbar(tree_row, orient="vertical", command=self.bindings_tree.yview)
+        self.bindings_tree.configure(yscrollcommand=bindings_vsb.set)
+        self.bindings_tree.pack(side="left", fill="x", expand=True)
+        bindings_vsb.pack(side="right", fill="y")
 
         btns = ttk.Frame(bindings_frame)
         btns.pack(fill="x", pady=4)
@@ -1414,16 +1421,14 @@ class App:
         ttk.Label(
             channels_frame, text="Drives a channel directly, no profile needed.", style="Hint.TLabel"
         ).pack(anchor="w", padx=6, pady=(6, 0))
-        self.test_channels_container = ttk.Frame(channels_frame)
-        self.test_channels_container.pack(fill="both", expand=True, padx=6, pady=6)
+        self.test_channels_container = self._build_scrollable_body(channels_frame, padding=(6, 4))
 
         ttk.Label(
             bindings_frame,
             text="\"Hold\" needs the engine Started (Run tab) and this profile pinned above to take effect.",
             style="Hint.TLabel", wraplength=320, justify="left",
         ).pack(anchor="w", padx=6, pady=(6, 0))
-        self.test_bindings_container = ttk.Frame(bindings_frame)
-        self.test_bindings_container.pack(fill="both", expand=True, padx=6, pady=6)
+        self.test_bindings_container = self._build_scrollable_body(bindings_frame, padding=(6, 4))
 
     def _refresh_test_artwork(self):
         """Same idea as _refresh_profile_artwork, but for the Test tab's small toolbar-row thumbnail next to its own profile picker."""
@@ -1877,8 +1882,7 @@ class App:
         else:
             self._add_header(frame, PROJECT_NAME)
 
-        body = ttk.Frame(frame)
-        body.pack(fill="both", expand=True, padx=PADX, pady=PADY)
+        body = self._build_scrollable_body(frame)
 
         ttk.Label(body, text=f"{PROJECT_SHORT_NAME} - version {__version__}", font=("Segoe UI", 10, "bold")).pack(
             anchor="w"
@@ -1951,11 +1955,11 @@ class App:
         changelogs_link.bind("<Button-1>", lambda _e: webbrowser.open(changelogs_url))
 
         changelog_frame = ttk.Frame(body)
-        changelog_frame.pack(fill="both", expand=True)
+        changelog_frame.pack(fill="x", pady=(0, 4))
         self.changelog_text = scrolledtext.ScrolledText(
-            changelog_frame, wrap="word", font=("Segoe UI", 10), padx=8, pady=6
+            changelog_frame, wrap="word", font=("Segoe UI", 10), padx=8, pady=6, height=18
         )
-        self.changelog_text.pack(fill="both", expand=True)
+        self.changelog_text.pack(fill="x")
 
         ct = self.changelog_text
         ct.tag_configure("h2", font=("Segoe UI", 13, "bold"), foreground=ACCENT_COLOR,
