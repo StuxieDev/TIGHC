@@ -6,7 +6,7 @@ Connect to Intiface, scan for devices, assign friendly nicknames to
 individual motors/capabilities, build game profiles (keybinds + ranges +
 which device each keybind drives), tweak global settings, and start/stop
 the haptics engine - all from one window. Everything you do here is written
-to the same JSON files src/tighc.py reads (configs/haptics_config.json,
+to the same JSON files src/tighc.py reads (configs/haptics.json,
 configs/devices.json, profiles/<id>/{keybinds,ranges}.json), so hand-editing
 those files and using this GUI are fully interchangeable.
 
@@ -420,7 +420,7 @@ class App:
         top.pack(fill="x", padx=PADX, pady=PADY)
         # Read-only display, not an editable field here - the Settings tab
         # is the one place that actually persists intiface_ws (to
-        # haptics_config.json), so letting this one be edited too would
+        # haptics.json), so letting this one be edited too would
         # just be a second, easy-to-forget-about place the URL could
         # silently diverge from what's actually saved.
         ttk.Label(top, text="Intiface WebSocket URL:").pack(side="left")
@@ -677,23 +677,15 @@ class App:
         self.profile_priority_var = tk.StringVar()
         ttk.Entry(meta, textvariable=self.profile_priority_var, width=50).grid(row=3, column=1, sticky="w", padx=4, pady=2)
 
-        ttk.Label(meta, text="Idle (background) vibe % low/high (0-100):").grid(row=4, column=0, sticky="w", padx=4, pady=2)
-        bg_frame = ttk.Frame(meta)
-        bg_frame.grid(row=4, column=1, sticky="w")
-        self.profile_bg_low_var = tk.StringVar()
-        self.profile_bg_high_var = tk.StringVar()
-        ttk.Entry(bg_frame, textvariable=self.profile_bg_low_var, width=8).pack(side="left")
-        ttk.Entry(bg_frame, textvariable=self.profile_bg_high_var, width=8).pack(side="left", padx=4)
-
         self._make_accent_button(meta, text="Save profile", command=self._on_save_profile).grid(
-            row=5, column=1, sticky="w", pady=6
+            row=4, column=1, sticky="w", pady=6
         )
 
         # Cover art thumbnail sits in its own column, spanning every row
         # above so it reads as "attached to this profile" rather than just
         # another form field.
         artwork_frame = ttk.Frame(meta)
-        artwork_frame.grid(row=0, column=2, rowspan=6, sticky="n", padx=(16, 4))
+        artwork_frame.grid(row=0, column=2, rowspan=5, sticky="n", padx=(16, 4))
         self.profile_artwork_label = ttk.Label(artwork_frame, text="(no cover art)", style="Hint.TLabel")
         self.profile_artwork_label.pack()
         ttk.Button(artwork_frame, text="Change cover art...", command=self._on_change_artwork).pack(pady=(6, 0))
@@ -811,8 +803,6 @@ class App:
         self.profile_windows_var.set(", ".join(profile.window_titles))
         self.profile_exact_match_var.set(profile.window_title_exact)
         self.profile_priority_var.set(", ".join(profile.priority))
-        self.profile_bg_low_var.set(f"{profile.background.low * 100:.0f}")
-        self.profile_bg_high_var.set(f"{profile.background.high * 100:.0f}")
         self.current_bindings = [self._binding_to_editable(b) for b in profile.bindings]
         self._refresh_bindings_tree()
         self._refresh_profile_artwork()
@@ -942,10 +932,6 @@ class App:
             raise ValueError("at least one window title is required")
         exact_match = self.profile_exact_match_var.get()
         priority = [t.strip() for t in self.profile_priority_var.get().split(",") if t.strip()]
-        bg_low = float(self.profile_bg_low_var.get()) / 100.0
-        bg_high = float(self.profile_bg_high_var.get()) / 100.0
-        VibeRange(bg_low, bg_high)
-
         profile = {
             "name": name,
             "window_titles": window_titles,
@@ -960,7 +946,6 @@ class App:
             profile["steamgriddb_grid_id"] = current_profile.steamgriddb_grid_id
         if priority:
             profile["priority"] = priority
-        profile["background_vibe"] = [bg_low, bg_high]
         profile["bindings"] = []
         for b in self.current_bindings:
             VibeRange(b["vibe_low"], b["vibe_high"])
@@ -1606,7 +1591,7 @@ class App:
     def _build_settings_tab(self):
         """
         Build the Settings tab: one form field/checkbox per
-        haptics_config.json key, pre-filled from load_haptics_config().
+        haptics.json key, pre-filled from load_haptics_config().
         Saving calls tighc.apply_haptics_config(), which takes effect
         immediately (see _on_save_settings) - the WebSocket URL is the one
         exception, needing a manual reconnect rather than an app restart.
@@ -1724,7 +1709,7 @@ class App:
 
     def _on_save_settings(self):
         """
-        "Save settings" button handler: assemble a full haptics_config.json-
+        "Save settings" button handler: assemble a full haptics.json-
         shaped dict from every form field and hand it to
         tighc.apply_haptics_config(), which persists it and updates the
         engine's live settings in place - no restart needed. Validates the

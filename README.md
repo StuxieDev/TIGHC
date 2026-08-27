@@ -5,7 +5,7 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.3.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.8.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 ![TIGHC](assets/logo.png)
@@ -82,7 +82,7 @@ it's a roadmap item, not something available yet.
 src/
   tighc.py                        # re-export facade over the modules below - not meant to be run directly
   engine.py                       # HapticsController - the engine itself
-  haptics_config.py               # configs/haptics_config.json load/apply + derived settings
+  haptics.py                      # configs/haptics.json load/apply + derived settings
   steamgriddb.py                  # SteamGridDB cover-art fetching/caching
   profiles.py                     # profiles/<id>/{keybinds,ranges}.json loading
   devices.py                      # configs/devices.json registry + per-channel state
@@ -95,7 +95,7 @@ cli.py                            # headless CLI entry point (imports src/tighc.
 gui.py                            # interactive configurator + launcher (also imports src/tighc.py)
 assets/                           # icon.png/icon.ico (window icon) and logo.png (About tab banner)
 configs/                          # per-install runtime config/state - gitignored, not source
-  haptics_config.json             # global settings (connection, panic key, smoothing, ...)
+  haptics.json             # global settings (connection, panic key, smoothing, ...)
   devices.json                    # remembers a nickname for each connected motor/capability
   steamgriddb_config.json         # your SteamGridDB API key - keep this private, don't share/commit it
   steamgriddb_cache.json          # resolved game ids / chosen art per profile, so repeat launches don't re-fetch
@@ -247,7 +247,7 @@ it like a password (don't commit it or share the file).
 
 ## Global settings
 
-`configs/haptics_config.json` covers everything that isn't game- or
+`configs/haptics.json` covers everything that isn't game- or
 device-specific: the Intiface WebSocket URL, a master randomization
 override, level smoothing, the panic key (forces everything off for a
 moment), auto-reconnect, and the background tick rate. Edit it by hand or

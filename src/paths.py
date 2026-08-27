@@ -1,6 +1,6 @@
 """Filesystem layout for TIGHC's per-install runtime state.
 
-Split out on its own so every other module (haptics_config, devices,
+Split out on its own so every other module (haptics, devices,
 profiles, steamgriddb) can depend on these paths without pulling in
 anything heavier - keeps the dependency graph a simple fan-out from here
 rather than everything routing through one large module.

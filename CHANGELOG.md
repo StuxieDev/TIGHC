@@ -5,6 +5,24 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.8.0]
+
+### Changed
+- **No background idle vibe** — the engine no longer applies a steady low-level
+  vibe when no binding is active. Channels idle at 0 between activations.
+  The `background_vibe` field has been removed from `Profile` and all
+  `profile.json` files. Requires Profiles v1.3.0 or later.
+- **Config renamed** — the main settings file is now `configs/haptics.json`
+  (was `configs/haptics_config.json`). Rename the file on disk to keep your
+  settings, or let TIGHC regenerate it with defaults on next launch.
+
+### Breaking changes
+- `profile.json` files with a `background_vibe` field will still load (the
+  field is now silently ignored), but code that accesses `Profile.background`
+  will break — that attribute no longer exists.
+- `configs/haptics_config.json` is no longer read; rename it to
+  `configs/haptics.json` to preserve your settings.
+
 ## [3.7.1]
 
 ### Changed

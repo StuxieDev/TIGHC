@@ -2,8 +2,8 @@
 and how to match its window title.
 
 Each profile is a folder under profiles/<id>/ containing a single profile.json
-with window matching metadata, a background_vibe idle level, and a bindings
-array where each entry contains its own keys, devices, and vibe range inline.
+with window matching metadata and a bindings array where each entry contains
+its own keys, devices, and vibe range inline.
 
 Profiles are matched against the foreground window title so haptics
 automatically follow whatever game currently has focus, and go idle when
@@ -24,7 +24,6 @@ DEFAULT_MINECRAFT_PROFILE = {
     "name": "Minecraft",
     "window_titles": ["minecraft"],
     "priority": ["attack", "use", "sneak", "sprint", "movement"],
-    "background_vibe": [0.20, 0.35],
     "bindings": [
         {"id": "movement",    "keys": ["w", "a", "s", "d"],              "enabled": True, "devices": ["all"], "vibe": [0.40, 0.65]},
         {"id": "sprint",      "keys": ["ctrl"],                          "enabled": True, "devices": ["all"], "vibe": [0.50, 0.70]},
@@ -58,7 +57,6 @@ class Profile:
     name: str
     window_titles: list  # strings matched case-sensitively against the foreground window title
     bindings_by_key: dict  # key/button token -> Binding, all enabled bindings merged for event dispatch
-    background: VibeRange
     bindings: list  # raw parsed bindings, in file order, for the startup banner
     priority: list  # raw id order from profile.json, used by the GUI's priority field
     # When True, window_titles entries must equal the full window title exactly
@@ -139,10 +137,6 @@ def _load_profile(profile_dir: Path) -> Profile:
 
     priority = data.get("priority", [])
 
-    if "background_vibe" not in data:
-        raise ValueError("profile.json needs a 'background_vibe' field")
-    background = VibeRange(*data["background_vibe"])
-
     seen_ids = set()
     parsed_bindings = []  # every binding, in file order, for the banner/GUI display
     bindings_by_key = {}  # key/button token -> Binding, all enabled bindings for event-driven dispatch
@@ -188,7 +182,6 @@ def _load_profile(profile_dir: Path) -> Profile:
         window_titles=window_titles,
         window_title_exact=window_title_exact,
         bindings_by_key=bindings_by_key,
-        background=background,
         bindings=parsed_bindings,
         priority=priority,
         steamgriddb_id=data.get("steamgriddb_id"),

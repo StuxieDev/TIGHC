@@ -1,4 +1,4 @@
-"""Global engine settings (configs/haptics_config.json): connection, panic
+"""Global engine settings (configs/haptics.json): connection, panic
 key, smoothing, auto-reconnect, timing.
 
 Every setting has a matching module-level constant derived below
@@ -8,8 +8,8 @@ than capturing once - apply_haptics_config() takes advantage of this to
 make Settings-tab changes take effect immediately, without an app restart.
 
 IMPORTANT for anyone reading these from another module: access them as
-`haptics_config.NAME` (import this module, not the names out of it).
-`from src.haptics_config import NAME` copies today's value into a local
+`haptics.NAME` (import this module, not the names out of it).
+`from src.haptics import NAME` copies today's value into a local
 binding at import time - a later apply_haptics_config() call reassigns
 the name inside *this* module's namespace via `global`, which a
 `from ... import NAME` elsewhere can never see. engine.py relies on the
@@ -24,7 +24,7 @@ import json
 from src.paths import CONFIGS_DIR
 from src.ranges import VibeRange
 
-HAPTICS_CONFIG_PATH = CONFIGS_DIR / "haptics_config.json"
+HAPTICS_CONFIG_PATH = CONFIGS_DIR / "haptics.json"
 
 # Written to disk verbatim the first time the script runs. Every value here
 # has a matching constant derived below, so this is the single source of
@@ -53,7 +53,7 @@ def _deep_merge(base: dict, overrides: dict) -> dict:
 
 def load_haptics_config() -> dict:
     """
-    Load configs/haptics_config.json, creating it with DEFAULT_HAPTICS_CONFIG
+    Load configs/haptics.json, creating it with DEFAULT_HAPTICS_CONFIG
     if it doesn't exist yet. If it exists but only partially overrides the
     defaults (e.g. the user only changed `intiface_ws`), the rest is filled
     in via _deep_merge() so every key the rest of this module expects is
@@ -100,7 +100,7 @@ BACKGROUND_TICK = HAPTICS_CONFIG["timing"]["background_tick"]
 
 def apply_haptics_config(new_config: dict):
     """
-    Persist `new_config` to configs/haptics_config.json and take effect
+    Persist `new_config` to configs/haptics.json and take effect
     immediately, without needing an app restart - HapticsController's
     methods (roll(), _smooth(), on_key_press()'s panic check,
     background_loop()'s auto-reconnect check, ...) all read the constants

@@ -9,9 +9,9 @@ pressed." The foreground window is watched continuously (see
 _update_active_profile) so haptics automatically follow whatever game
 currently has focus, going idle when nothing matches.
 
-NOTE on `haptics_config`: every setting-derived read in this file goes
-through the module itself (`haptics_config.NAME`), never a bare name copied
-in via `from src.haptics_config import NAME` - see that module's docstring
+NOTE on `haptics`: every setting-derived read in this file goes
+through the module itself (`haptics.NAME`), never a bare name copied
+in via `from src.haptics import NAME` - see that module's docstring
 for why: apply_haptics_config() reassigns its globals via `global`, and only
 module-qualified access sees that update on a running controller's next
 tick. This is what makes gui.py's Settings tab able to change these values
@@ -25,7 +25,7 @@ from typing import Optional
 from buttplug import ButtplugClient, DeviceOutputCommand, OutputType
 from pynput import keyboard, mouse
 
-from src import haptics_config
+from src import haptics
 from src.devices import SUPPORTED_OUTPUT_TYPES, DEVICES_PATH, DeviceChannel, load_device_registry, resolve_channel_nicknames
 from src.input import InputState, get_foreground_window_title, normalize_key
 from src.metadata import PROJECT_NAME, PROJECT_SHORT_NAME
@@ -221,9 +221,9 @@ class HapticsController:
         """Roll a level from the given range, unless master randomization overrides it."""
         # MASTER_RANDOM_ENABLED is a global "ignore every per-binding range
         # and just roll from one fixed band instead" override, set in
-        # configs/haptics_config.json - useful for testing or for players
+        # configs/haptics.json - useful for testing or for players
         # who want pure randomness regardless of what they're doing in-game.
-        active_range = haptics_config.MASTER_VIBE_RANGE if haptics_config.MASTER_RANDOM_ENABLED else vibe_range
+        active_range = haptics.MASTER_VIBE_RANGE if haptics.MASTER_RANDOM_ENABLED else vibe_range
         return active_range.roll()
 
     def _smooth(self, channel: DeviceChannel, target: float) -> float:
@@ -232,9 +232,9 @@ class HapticsController:
         # straight there, so idle/continuous levels feel like they drift
         # rather than strobe every 180ms. Each channel keeps its own
         # last_level, so smoothing is independent per channel.
-        if not haptics_config.ENABLE_SMOOTHING:
+        if not haptics.ENABLE_SMOOTHING:
             return target
-        return channel.last_level + (target - channel.last_level) * haptics_config.SMOOTHING_FACTOR
+        return channel.last_level + (target - channel.last_level) * haptics.SMOOTHING_FACTOR
 
     async def _set_channel_level(self, channel: DeviceChannel, level: float):
         """
@@ -356,7 +356,7 @@ class HapticsController:
 
     async def panic(self):
         """Immediately force every channel's output off, for a short hold."""
-        self._panic_until = time.time() + haptics_config.PANIC_HOLD_DURATION
+        self._panic_until = time.time() + haptics.PANIC_HOLD_DURATION
         await asyncio.gather(*(self._set_channel_level(c, 0.0) for c in self.channels.values()))
         self.log("PANIC - haptics forced off.")
 
@@ -380,22 +380,18 @@ class HapticsController:
             for channel in self.channels.values():
                 if channel.pulse_active or now < channel.ignore_until or channel.manual_override is not None:
                     continue
-                # No binding is currently holding this channel - apply the idle background level.
-                if self.active_profile is None:
-                    await self._set_channel_level(channel, 0.0)
-                else:
-                    level = self._smooth(channel, self.roll(self.active_profile.background))
-                    await self._set_channel_level(channel, level)
+                # No binding is currently holding this channel - keep idle at zero.
+                await self._set_channel_level(channel, 0.0)
 
             if (
-                haptics_config.ENABLE_AUTO_RECONNECT
-                and self._consecutive_send_failures >= haptics_config.FAILURE_RECONNECT_THRESHOLD
-                and time.time() - self._last_reconnect_attempt >= haptics_config.RECONNECT_COOLDOWN
+                haptics.ENABLE_AUTO_RECONNECT
+                and self._consecutive_send_failures >= haptics.FAILURE_RECONNECT_THRESHOLD
+                and time.time() - self._last_reconnect_attempt >= haptics.RECONNECT_COOLDOWN
             ):
                 self._last_reconnect_attempt = time.time()
                 await self._attempt_reconnect()
 
-            await asyncio.sleep(haptics_config.BACKGROUND_TICK)
+            await asyncio.sleep(haptics.BACKGROUND_TICK)
 
     # --------------------------------------------------------------- input
     def schedule(self, coro):
@@ -421,7 +417,7 @@ class HapticsController:
         was_held = k in self.input_state.pressed_keys
         self.input_state.pressed_keys.add(k)
 
-        if haptics_config.ENABLE_PANIC_KEY and k == haptics_config.PANIC_KEY:
+        if haptics.ENABLE_PANIC_KEY and k == haptics.PANIC_KEY:
             self.schedule(self.panic())
             return
 
@@ -522,9 +518,9 @@ class HapticsController:
         what the GUI's Run tab log shows after clicking Start).
         """
         self.log(f"{PROJECT_SHORT_NAME} v{get_version()} active - {PROJECT_NAME}")
-        if haptics_config.MASTER_RANDOM_ENABLED:
+        if haptics.MASTER_RANDOM_ENABLED:
             self.log(
-                f"- MASTER RANDOM ON        -> every binding rolls {haptics_config.MASTER_VIBE_RANGE} "
+                f"- MASTER RANDOM ON        -> every binding rolls {haptics.MASTER_VIBE_RANGE} "
                 "(per-binding ranges ignored)"
             )
 
@@ -537,29 +533,28 @@ class HapticsController:
             self.log(f"No profiles found in {PROFILES_DIR} - haptics will stay idle.")
         for profile in self.profiles.values():
             self.log(f"[{profile.name}]  (window match: {'/'.join(profile.window_titles)})")
-            self.log(self._binding_line("Idle", True, profile.background, None, None))
             for b in profile.bindings:
                 label = f"{b['id']} ({'+'.join(b['keys'])})"
                 self.log(self._binding_line(label, b["enabled"], b["vibe"], b["duration"], b["devices"]))
 
         self.log(self._status_line("Profile switching", "automatic, based on the focused window"))
-        if haptics_config.ENABLE_PANIC_KEY:
+        if haptics.ENABLE_PANIC_KEY:
             self.log(
                 self._status_line(
-                    f"Panic key ({haptics_config.PANIC_KEY.upper()})",
-                    f"forces output off for {haptics_config.PANIC_HOLD_DURATION:.1f}s",
+                    f"Panic key ({haptics.PANIC_KEY.upper()})",
+                    f"forces output off for {haptics.PANIC_HOLD_DURATION:.1f}s",
                 )
             )
         else:
             self.log(self._status_line("Panic key", "disabled"))
-        self.log(self._status_line("Auto-reconnect", "enabled" if haptics_config.ENABLE_AUTO_RECONNECT else "disabled"))
+        self.log(self._status_line("Auto-reconnect", "enabled" if haptics.ENABLE_AUTO_RECONNECT else "disabled"))
         self.log(
             self._status_line(
                 "Level smoothing",
-                f"enabled (factor {haptics_config.SMOOTHING_FACTOR})" if haptics_config.ENABLE_SMOOTHING else "disabled",
+                f"enabled (factor {haptics.SMOOTHING_FACTOR})" if haptics.ENABLE_SMOOTHING else "disabled",
             )
         )
-        self.log(f"Global config: {haptics_config.HAPTICS_CONFIG_PATH}")
+        self.log(f"Global config: {haptics.HAPTICS_CONFIG_PATH}")
         self.log(f"Profiles dir:  {PROFILES_DIR}")
         self.log(f"Devices file:  {DEVICES_PATH}")
 

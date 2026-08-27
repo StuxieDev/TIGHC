@@ -10,7 +10,7 @@ from:
   src/metadata.py        - project name/repo URL
   src/version.py         - version number + get_version()/get_version_tuple()
   src/ranges.py          - VibeRange/DurationRange/PulseSpec
-  src/haptics_config.py  - configs/haptics_config.json load/apply + derived settings
+  src/haptics.py         - configs/haptics.json load/apply + derived settings
   src/devices.py         - configs/devices.json registry + DeviceChannel
   src/profiles.py        - profiles/<id>/profile.json loading + Profile
   src/input.py           - keyboard/mouse normalization, focused-window lookup
@@ -25,7 +25,7 @@ apply_haptics_config() can change at runtime (INTIFACE_WS,
 MASTER_RANDOM_ENABLED, ENABLE_SMOOTHING, PANIC_KEY, ...) are snapshots
 taken once, at import time - fine for every current caller (none of them
 re-read these particular names from `tighc` after Settings are saved; the
-engine itself reads them from src.haptics_config directly, which is what
+engine itself reads them from src.haptics directly, which is what
 actually makes live-reload work - see that module's docstring), but new
 code that needs the *live* value should do the same rather than relying on
 this facade.
@@ -35,7 +35,7 @@ from src.metadata import AUTHOR_NAME, AUTHOR_URL, PROJECT_NAME, PROJECT_SHORT_NA
 from src.version import __version__, get_version, get_version_tuple
 from src.paths import ARTWORK_CACHE_DIR, CONFIGS_DIR, PROFILES_DIR, REPO_ROOT
 from src.ranges import DurationRange, FloatRange, VibeRange
-from src.haptics_config import (
+from src.haptics import (
     BACKGROUND_TICK,
     DEFAULT_HAPTICS_CONFIG,
     ENABLE_AUTO_RECONNECT,

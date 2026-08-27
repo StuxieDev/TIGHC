@@ -2,7 +2,7 @@
 
 Run this to start the engine from the command line: `python cli.py`. Age
 gate, then builds a controller from src/tighc.py's module-level config/
-profiles (configs/haptics_config.json, configs/devices.json, profiles/) and
+profiles (configs/haptics.json, configs/devices.json, profiles/) and
 runs it until Ctrl+C. No GUI - hand-edit the JSON files and restart to
 change anything.
 

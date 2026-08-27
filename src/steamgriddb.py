@@ -39,7 +39,7 @@ STEAMGRIDDB_API_BASE = "https://www.steamgriddb.com/api/v2"
 # but because omitting it makes every call fail regardless of API key.
 STEAMGRIDDB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
-# Kept separate from haptics_config.json (unlike every other setting)
+# Kept separate from haptics.json (unlike every other setting)
 # because it holds a personal API credential - easier to keep private/
 # gitignored on its own than to mix it into a file that's otherwise safe
 # to share.
