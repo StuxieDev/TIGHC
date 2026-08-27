@@ -283,13 +283,12 @@ class HapticsController:
         if not targets:
             return
 
-        level = self.roll(vibe_range)
         for channel in targets:
             channel.pulse_active = True
             if duration is not None:
                 channel.ignore_until = now + duration
 
-        await asyncio.gather(*(self._set_channel_level(c, level) for c in targets))
+        await asyncio.gather(*(self._set_channel_level(c, self.roll(vibe_range)) for c in targets))
 
         if cancel_event is not None:
             if duration is not None:

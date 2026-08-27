@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.6]
+
+### Fixed
+- **Per-channel independent randomisation** — each connected device/channel now
+  gets its own separately rolled level within the binding's range when a
+  binding fires. Previously all channels received the same rolled value,
+  making every device trigger at identical intensity simultaneously.
+
 ## [3.9.5]
 
 ### Fixed
