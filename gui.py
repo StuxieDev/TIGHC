@@ -259,8 +259,10 @@ class App:
         self.connection_status_label = ttk.Label(top_bar, textvariable=self.connection_status_var, style="Hint.TLabel")
         self.connection_status_label.pack(side="left")
 
-        notebook = ttk.Notebook(self.root)
+        self.notebook = ttk.Notebook(self.root)
+        notebook = self.notebook
         notebook.pack(fill="both", expand=True, padx=PADX // 2, pady=PADY // 2)
+        notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         self.devices_tab = ttk.Frame(notebook)
         self.profiles_tab = ttk.Frame(notebook)
@@ -874,6 +876,14 @@ class App:
         display_names = sorted(self._profile_display_name(pid) for pid in ids)
         self.profile_combo["values"] = display_names
         self.test_profile_combo["values"] = display_names
+        self.run_override_combo["values"] = ["Auto (follow focus)"] + display_names
+        # If the currently overridden profile was removed, clear the override.
+        current_override = self.controller.run_profile_override
+        if current_override is not None and current_override.id not in ids:
+            self.controller.run_profile_override = None
+            self.run_override_combo.set("Auto (follow focus)")
+        elif self.run_override_combo.get() == "":
+            self.run_override_combo.set("Auto (follow focus)")
         if not ids:
             self.current_profile_id = None
             self._refresh_test_bindings()
@@ -1770,6 +1780,35 @@ class App:
                 self.bridge.submit(self.controller.clear_test_level(nickname))
         self._enqueue_log("Test mode: released all manual holds.")
 
+    def _on_tab_changed(self, _event=None):
+        """Clear all Test tab overrides (pin + holds) whenever the user navigates away from the Test tab."""
+        if self.notebook.nametowidget(self.notebook.select()) is self.test_tab:
+            return
+        changed = False
+        if self.test_pin_var.get():
+            self.test_pin_var.set(False)
+            self.controller.test_profile_override = None
+            changed = True
+        for nickname, widgets in self._test_channel_widgets.items():
+            if widgets["hold_var"].get():
+                widgets["hold_var"].set(False)
+                self.bridge.submit(self.controller.clear_test_level(nickname))
+                changed = True
+        if changed:
+            self._enqueue_log("Left Test tab - test overrides cleared.")
+
+    def _on_run_override_changed(self, _event=None):
+        """Run tab profile override combobox handler: force a specific profile active, or restore auto-matching."""
+        selected = self.run_override_combo.get()
+        if not selected or selected == "Auto (follow focus)":
+            self.controller.run_profile_override = None
+            self._enqueue_log("Profile override cleared - following focused window.")
+        else:
+            profile = self.controller.profiles.get(self._profile_id_for_display(selected))
+            if profile:
+                self.controller.run_profile_override = profile
+                self._enqueue_log(f"Profile override set to '{profile.name}'.")
+
     # =============================================================== Settings tab
     def _build_settings_tab(self):
         """
@@ -2006,6 +2045,10 @@ class App:
         self.stop_btn.pack(side="left", padx=6)
         self.status_var = tk.StringVar(value="Stopped")
         ttk.Label(btns, textvariable=self.status_var, font=("Segoe UI", 10, "bold")).pack(side="left", padx=12)
+        ttk.Label(btns, text="Override profile:").pack(side="left", padx=(20, 4))
+        self.run_override_combo = ttk.Combobox(btns, state="readonly", width=22)
+        self.run_override_combo.pack(side="left")
+        self.run_override_combo.bind("<<ComboboxSelected>>", self._on_run_override_changed)
 
         levels_frame = ttk.LabelFrame(frame, text="Live status")
         levels_frame.pack(fill="x", padx=PADX, pady=(0, PADY))

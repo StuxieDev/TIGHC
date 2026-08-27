@@ -5,6 +5,19 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.7]
+
+### Added
+- **Run tab profile override** — new "Override profile" dropdown in the Run tab
+  lets you force a specific profile active while the engine is running, without
+  needing the Test tab. Select "Auto (follow focus)" to go back to normal
+  window-matching behaviour.
+
+### Fixed
+- **Test tab overrides no longer leak** — the Test tab's "Pin as active profile"
+  checkbox and all manual channel holds are now automatically cleared when you
+  navigate away from the Test tab.
+
 ## [3.9.6]
 
 ### Fixed

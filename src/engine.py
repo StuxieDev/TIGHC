@@ -62,7 +62,13 @@ class HapticsController:
         # When set (by the GUI's Test tab), this profile is always "active"
         # regardless of which window is actually focused - lets you test a
         # profile's continuous bindings without alt-tabbing into the game.
+        # Cleared automatically when the user leaves the Test tab.
         self.test_profile_override: Optional[Profile] = None
+
+        # When set (by the GUI's Run tab), this profile is forced active
+        # while the engine is running, overriding window-focus matching.
+        # Takes precedence over test_profile_override.
+        self.run_profile_override: Optional[Profile] = None
 
         self._panic_until = 0.0                # Output is forced to 0 until this timestamp
         self._consecutive_send_failures = 0    # Drives auto-reconnect
@@ -195,7 +201,9 @@ class HapticsController:
         pressed_keys, since held tokens from the old profile's keybinds
         wouldn't mean anything under a different one anyway.
         """
-        if self.test_profile_override is not None:
+        if self.run_profile_override is not None:
+            matched = self.run_profile_override
+        elif self.test_profile_override is not None:
             matched = self.test_profile_override
         else:
             title = get_foreground_window_title()
