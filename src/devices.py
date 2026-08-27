@@ -157,6 +157,12 @@ class DeviceChannel:
     # this isn't None, background_loop() leaves the channel alone entirely so
     # a manual test level doesn't get immediately overwritten by real input.
     manual_override: Optional[float] = None
+    # Which binding currently owns this channel and the input token that fired it.
+    # Used by priority preemption: a higher-priority binding checks these to decide
+    # whether it can take over; the owning pulse checks them on cleanup to avoid
+    # zeroing a channel that has already been handed to someone else.
+    active_binding_id: Optional[str] = None
+    active_token: Optional[str] = None
 
 
 if __name__ == "__main__":

@@ -5,6 +5,18 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.10]
+
+### Fixed
+- **Priority preemption now works** — when a higher-priority binding's key is
+  pressed while a lower-priority binding is already running (e.g. pressing Shift
+  for Sprint while W is held for Movement), the lower-priority pulse is
+  immediately cancelled and the higher-priority one takes over on those channels.
+  When the higher-priority key is released, the engine automatically resumes the
+  best still-held lower-priority binding, so going back to Movement after
+  releasing Sprint happens without needing to re-press W. Priority order is
+  configured in each profile's `priority` list (lower index = higher priority).
+
 ## [3.9.9]
 
 ### Added
