@@ -273,88 +273,34 @@ class HapticsController:
             self._consecutive_send_failures = 0 if sent else self._consecutive_send_failures + 1
         channel.last_level = level
 
-    def _priority_index(self, binding_id: str) -> int:
-        """Lower return value = higher priority. Bindings absent from the priority list rank last."""
-        if not self.active_profile or not self.active_profile.priority:
-            return 0
-        try:
-            return self.active_profile.priority.index(binding_id)
-        except ValueError:
-            return len(self.active_profile.priority)
+    async def _held_pulse_loop(self, binding, token):
+        """Fire short pulses in a loop while the key/button is held.
 
-    async def _resume_held_binding(self, released_token: str):
+        Each iteration fires a 0.1s pulse. If target channels are busy (e.g.
+        a higher-priority binding is running) _do_pulse returns immediately;
+        the 0.01s sleep prevents a tight spin. The loop exits once the release
+        handler removes token from _held_bindings. If a pulse is mid-flight when
+        the key is released, the cancel event set by on_key_release terminates it
+        early so the channel zeros without waiting the full 0.1s.
         """
-        After the pulse for `released_token` ends (key released or preempted),
-        restart the highest-priority binding whose key is still held but whose
-        pulse is no longer running. Skips resumption if all target channels are
-        already owned by a binding with equal or higher priority.
-        """
-        if not self.active_profile or not self._held_bindings:
-            return
-        priority = self.active_profile.priority
-        candidates = {
-            t: b for t, b in self._held_bindings.items()
-            if t != released_token and t not in self._pulse_cancel_events
-        }
-        if not candidates:
-            return
-        best_token = min(
-            candidates,
-            key=lambda t: priority.index(candidates[t].id) if candidates[t].id in priority else len(priority),
-        )
-        best_binding = candidates[best_token]
-        best_pri = self._priority_index(best_binding.id)
-        channels = self._channels_for(best_binding.devices)
-        if channels and all(
-            c.pulse_active and self._priority_index(c.active_binding_id or "") <= best_pri
-            for c in channels
-        ):
-            return  # all channels already owned by equal or higher priority
-        await self.pulse(best_binding.vibe, None, best_binding.devices, token=best_token, binding_id=best_binding.id)
+        while token in self._held_bindings:
+            await self.pulse(binding.vibe, 0.1, binding.devices, token=token, binding_id=binding.id)
+            await asyncio.sleep(0.01)
 
     async def _do_pulse(self, vibe_range: VibeRange, duration: Optional[float], target: Optional[frozenset], cancel_event: Optional[asyncio.Event] = None, *, token: Optional[str] = None, binding_id: Optional[str] = None):
-        """
-        Shared implementation behind pulse() and test_pulse().
+        """Fire a pulse on available target channels for `duration` seconds.
 
-        When `binding_id` is given and the active profile has a priority list,
-        channels currently owned by a lower-priority binding are preempted: their
-        pulse is cancelled and this one takes over immediately. When this pulse
-        ends the best remaining held binding is resumed via _resume_held_binding().
-
-        `duration=None` means "hold until cancel_event fires" (real input path).
-        A float duration is used by test_pulse() and scroll for timed bursts.
+        Channels with an active pulse are skipped. `duration=None` + a cancel_event
+        means hold until the event fires. A float duration is used by test_pulse()
+        and scroll. Called by pulse() for real input and test_pulse() for GUI tests.
         """
         now = time.time()
-
-        if binding_id and self.active_profile and self.active_profile.priority:
-            new_pri = self._priority_index(binding_id)
-            targets = []
-            to_preempt = []
-            for c in self._channels_for(target):
-                if now < c.ignore_until:
-                    continue
-                if not c.pulse_active:
-                    targets.append(c)
-                elif c.active_token is not None and self._priority_index(c.active_binding_id or "") > new_pri:
-                    targets.append(c)
-                    to_preempt.append((c, c.active_token))
-        else:
-            targets = [c for c in self._channels_for(target) if now >= c.ignore_until and not c.pulse_active]
-            to_preempt = []
-
+        targets = [c for c in self._channels_for(target) if now >= c.ignore_until and not c.pulse_active]
         if not targets:
             return
 
-        # Cancel lower-priority pulses we are taking over
-        for _c, preempted_token in to_preempt:
-            ev = self._pulse_cancel_events.get(preempted_token)
-            if ev is not None:
-                ev.set()
-
         for channel in targets:
             channel.pulse_active = True
-            channel.active_binding_id = binding_id
-            channel.active_token = token
             if duration is not None:
                 channel.ignore_until = now + duration
 
@@ -376,25 +322,12 @@ class HapticsController:
         elif duration is not None:
             await asyncio.sleep(duration)
 
-        # Only release ownership of channels this pulse still owns.
-        # A channel whose active_token has changed was preempted by a higher-priority
-        # binding that already took ownership - leave it alone.
         for channel in targets:
-            if channel.active_token == token:
-                channel.pulse_active = False
-                channel.active_binding_id = None
-                channel.active_token = None
+            channel.pulse_active = False
 
-        # Send 0 only to channels we still own; preempted channels keep their new level.
-        owned = [c for c in targets if c.active_token is None]
-        if owned:
-            await asyncio.gather(
-                *(self._set_channel_level(c, c.manual_override if c.manual_override is not None else 0.0) for c in owned)
-            )
-
-        # Resume the best lower-priority held binding now that this pulse has ended.
-        if token is not None:
-            await self._resume_held_binding(token)
+        await asyncio.gather(
+            *(self._set_channel_level(c, c.manual_override if c.manual_override is not None else 0.0) for c in targets)
+        )
 
     async def pulse(self, vibe_range: VibeRange, duration: Optional[float], target: Optional[frozenset], token: Optional[str] = None, binding_id: Optional[str] = None):
         """Vibration triggered by real input - a no-op while no profile is active.
@@ -510,7 +443,7 @@ class HapticsController:
         if binding:
             self._held_bindings[k] = binding
             self.log(f"[{binding.id}]: activated ({k}) [{binding.vibe}]")
-            self.schedule(self.pulse(binding.vibe, None, binding.devices, token=k, binding_id=binding.id))
+            self.schedule(self._held_pulse_loop(binding, k))
 
     def on_key_release(self, key):
         """pynput callback: stop tracking the key as held; cancels any in-progress pulse for that key."""
@@ -549,7 +482,7 @@ class HapticsController:
             if binding:
                 self._held_bindings[token] = binding
                 self.log(f"[{binding.id}]: activated ({token}) [{binding.vibe}]")
-                self.schedule(self.pulse(binding.vibe, None, binding.devices, token=token, binding_id=binding.id))
+                self.schedule(self._held_pulse_loop(binding, token))
         elif not pressed:
             self._held_bindings.pop(token, None)
             cancel_event = self._pulse_cancel_events.get(token)

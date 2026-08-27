@@ -5,6 +5,18 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.11]
+
+### Fixed
+- **Priority: held bindings now loop correctly** — instead of one long held pulse
+  with cancel-event preemption (which caused ownership races and stale cleanup),
+  each held key now fires a short 0.1s pulse in a loop until the key is released.
+  When a higher-priority binding is running on those channels, the lower-priority
+  loop simply skips that iteration and retries 10ms later — no cancel-event
+  cross-talk, no resume logic, no stale state. Sprint pressing while W is held
+  now takes the channels within one 0.1s tick; releasing sprint lets W resume on
+  the very next loop iteration.
+
 ## [3.9.10]
 
 ### Fixed
