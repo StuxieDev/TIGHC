@@ -1,13 +1,17 @@
 """TIGHC's version - single source of truth, read by the engine's startup
 banner, cli.py, and gui.py's About tab.
 
-Versioning follows Semantic Versioning (semver.org): MAJOR.MINOR.PATCH,
-where MAJOR bumps mark breaking config-format/behavior changes, MINOR marks
-backward-compatible feature additions, and PATCH marks fixes. Bump
-__version__ here and add a matching entry to CHANGELOG.md together.
+The version number lives in version.txt at the repo root so it can be read
+by both Python (here) and external tools (the website, CI, etc.) without
+importing the package. Versioning follows Semantic Versioning (semver.org):
+MAJOR.MINOR.PATCH, where MAJOR bumps mark breaking config-format/behavior
+changes, MINOR marks backward-compatible feature additions, and PATCH marks
+fixes. Bump version.txt and add a matching entry to CHANGELOG.md together.
 """
 
-__version__ = "3.7.0"
+from pathlib import Path
+
+__version__ = (Path(__file__).parent.parent / "version.txt").read_text(encoding="utf-8").strip()
 
 
 def get_version() -> str:

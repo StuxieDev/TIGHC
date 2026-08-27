@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.7.1]
+
+### Changed
+- **`version.txt`** added at the repo root as a single source of truth for the
+  version number. `src/version.py` now reads from it instead of hardcoding the
+  string, so external tools (the website, CI, etc.) can read the version without
+  importing the package.
+
 ## [3.7.0]
 
 ### Changed
