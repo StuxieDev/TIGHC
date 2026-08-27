@@ -70,6 +70,7 @@ class HapticsController:
         self._background_task: Optional[asyncio.Task] = None
         self._kb_listener: Optional[keyboard.Listener] = None
         self._mouse_listener: Optional[mouse.Listener] = None
+        self._pulse_cancel_events: dict = {}   # token -> asyncio.Event, for stop-on-release
 
     # ---------------------------------------------------------------- setup
     async def connect(self) -> bool:
@@ -172,14 +173,14 @@ class HapticsController:
             self.log("Reconnect attempt failed, will retry.")
 
     # ----------------------------------------------------------- profiles
-    def _match_profile(self, window_title_lower: str) -> Optional[Profile]:
+    def _match_profile(self, window_title: str) -> Optional[Profile]:
         """Return the first loaded profile whose window_titles matches, or None if nothing matches."""
         # Profiles are matched in self.profiles' insertion order (i.e.
         # alphabetical by folder name, per load_profiles()) - if two
         # profiles' window_titles could both match the same window, the
         # alphabetically-first one wins.
         for profile in self.profiles.values():
-            if profile.matches(window_title_lower):
+            if profile.matches(window_title):
                 return profile
         return None
 
@@ -197,7 +198,7 @@ class HapticsController:
         if self.test_profile_override is not None:
             matched = self.test_profile_override
         else:
-            title = get_foreground_window_title().lower()
+            title = get_foreground_window_title()
             matched = self._match_profile(title)
         if matched is self.active_profile:
             return
@@ -262,7 +263,7 @@ class HapticsController:
             self._consecutive_send_failures = 0 if sent else self._consecutive_send_failures + 1
         channel.last_level = level
 
-    async def _do_pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset]):
+    async def _do_pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset], cancel_event: Optional[asyncio.Event] = None):
         """
         Shared implementation behind pulse() and test_pulse() - see those
         for the difference (whether an active profile is required).
@@ -273,6 +274,11 @@ class HapticsController:
         the target set simultaneously; channels already mid-pulse or still
         in another pulse's cooldown window are skipped for this trigger
         rather than queued or made to wait.
+
+        When `cancel_event` is supplied (real input pulses, not test pulses),
+        releasing the key before `duration` elapses sets the event and cuts
+        the pulse short. The ignore_until cooldown is cleared on early cancel
+        so the channel is immediately available for the next press.
         """
         now = time.time()
         # Only one pulse "slot" per channel at a time - a channel already
@@ -287,7 +293,18 @@ class HapticsController:
             channel.ignore_until = now + duration
 
         await asyncio.gather(*(self._set_channel_level(c, level) for c in targets))
-        await asyncio.sleep(duration)
+
+        if cancel_event is not None:
+            try:
+                await asyncio.wait_for(cancel_event.wait(), timeout=duration)
+                # Key released before full duration - clear cooldown so next press fires immediately
+                for channel in targets:
+                    channel.ignore_until = 0.0
+            except asyncio.TimeoutError:
+                pass  # full duration elapsed normally
+        else:
+            await asyncio.sleep(duration)
+
         for channel in targets:
             channel.pulse_active = False
 
@@ -307,11 +324,23 @@ class HapticsController:
                 *(self._set_channel_level(c, c.manual_override if c.manual_override is not None else 0.0) for c in targets)
             )
 
-    async def pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset]):
-        """Short randomized vibration triggered by real input - a no-op while no profile is active."""
+    async def pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset], token: Optional[str] = None):
+        """Short randomized vibration triggered by real input - a no-op while no profile is active.
+
+        When `token` is supplied (the key/button string that triggered this pulse), a cancel
+        event is registered so releasing that key before the duration elapses cuts it short.
+        """
         if self.active_profile is None:
             return
-        await self._do_pulse(vibe_range, duration, target)
+        if token is not None:
+            cancel_event = asyncio.Event()
+            self._pulse_cancel_events[token] = cancel_event
+            try:
+                await self._do_pulse(vibe_range, duration, target, cancel_event)
+            finally:
+                self._pulse_cancel_events.pop(token, None)
+        else:
+            await self._do_pulse(vibe_range, duration, target)
 
     async def test_pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset]):
         """Same as pulse(), but for the GUI's manual test controls - fires even with no active profile."""
@@ -403,6 +432,7 @@ class HapticsController:
             k = normalize_key(key)
         except Exception:
             return
+        was_held = k in self.input_state.pressed_keys
         self.input_state.pressed_keys.add(k)
 
         if haptics_config.ENABLE_PANIC_KEY and k == haptics_config.PANIC_KEY:
@@ -415,15 +445,26 @@ class HapticsController:
             return
         pulse_binding = self.active_profile.pulse_bindings.get(k)
         if pulse_binding:
-            self.schedule(self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices))
+            self.log(f"[Pulse] {pulse_binding.id}: triggered ({k})")
+            self.schedule(self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices, token=k))
+        elif not was_held:
+            for binding in self.active_profile.continuous:
+                if k in binding.tokens:
+                    self.log(f"[Continuous] {binding.id}: activated ({k})")
+                    break
 
     def on_key_release(self, key):
-        """pynput callback: stop tracking the key as held."""
+        """pynput callback: stop tracking the key as held; cancels any in-progress pulse for that key."""
         try:
             k = normalize_key(key)
         except Exception:
             return
         self.input_state.pressed_keys.discard(k)
+        cancel_event = self._pulse_cancel_events.get(k)
+        if cancel_event is not None and self.loop:
+            self.loop.call_soon_threadsafe(cancel_event.set)
+            # binding name not easily available here; key token is sufficient
+            self.log(f"[Pulse] {k}: cancelled (key released)")
 
     def on_mouse_click(self, _x, _y, button, pressed):
         """
@@ -447,9 +488,20 @@ class HapticsController:
         if pressed and self.active_profile is not None:
             pulse_binding = self.active_profile.pulse_bindings.get(token)
             if pulse_binding:
+                self.log(f"[Pulse] {pulse_binding.id}: triggered ({token})")
                 self.schedule(
-                    self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices)
+                    self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices, token=token)
                 )
+            else:
+                for binding in self.active_profile.continuous:
+                    if token in binding.tokens:
+                        self.log(f"[Continuous] {binding.id}: activated ({token})")
+                        break
+        elif not pressed:
+            cancel_event = self._pulse_cancel_events.get(token)
+            if cancel_event is not None and self.loop:
+                self.loop.call_soon_threadsafe(cancel_event.set)
+                self.log(f"[Pulse] {token}: cancelled (button released)")
 
     def on_mouse_scroll(self, _x, _y, _dx, _dy):
         """

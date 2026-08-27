@@ -5,6 +5,67 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.5.0]
+
+### Added
+- **Pulse stops on key release** - pulse bindings no longer play for their full
+  duration if the key/button is released early. Releasing cancels the pulse
+  immediately and clears the channel's cooldown so the next press fires without
+  delay. Test pulses (from the GUI's Test tab) are unaffected and still run to
+  full duration.
+- **Run log shows binding events** - pressing a key that activates a pulse or
+  continuous binding now writes a line to the Run tab log (e.g.
+  `[Pulse] space: triggered`, `[Continuous] movement: activated (w)`). Releasing
+  a key mid-pulse logs the cancellation.
+- **Priority field covers all bindings** - the "priority order" field on the
+  Profiles tab now shows and saves IDs for both pulse and continuous bindings,
+  not just continuous. Pulse IDs in the priority list are preserved across saves
+  so their position is remembered if the mode is later changed to continuous.
+
+## [3.4.0]
+
+### Added
+- **Exact window title matching** - profiles now support a `window_title_exact`
+  flag (`keybinds.json`) that switches window matching from substring to full
+  equality. Prevents a profile with title `"Grounded"` from activating when
+  *Grounded 2* is focused. Exposed as an "Exact window title match" checkbox
+  in the Profiles tab.
+
+### Changed
+- **Window title matching is now case-sensitive** - previously all window titles
+  in profiles and the live window title from the OS were both forced to
+  lowercase before comparison, making matching case-insensitive. The forced
+  lowercasing has been removed: titles are now compared as-is, so profile
+  `window_titles` entries must match the actual case of the game's window title.
+  Existing profiles with lowercase entries (e.g. `"minecraft"`) will need to be
+  updated if the game's window title uses a different case (e.g. `"Minecraft"`).
+
+### Fixed
+- **Profile settings "background vibe" field ignored % label** - the idle
+  background vibe low/high entries in the Profile settings form were stored
+  and read as raw 0.0–1.0 decimals despite the label saying "vibe % low/high".
+  They now use the same 0–100 percentage scale as every other vibe field.
+- **Binding dialog pre-populates vibe as decimal instead of percentage** - when
+  editing an existing binding, the Vibe % fields showed the raw decimal (e.g.
+  `0.30`) instead of the percentage value (`30`). Because the dialog divides by
+  100 on save, this silently scaled every edited vibe down to ~1% intensity,
+  making pulse bindings functionally invisible against the background. Fields
+  now correctly show the percentage (e.g. `30`) when opened for editing, and
+  the defaults for new bindings changed from `0.30`/`0.60` to `30`/`60`.
+- **Binding dialog duration fields don't reflect mode changes** - the Duration
+  fields stayed enabled/editable even when mode was set to "continuous", giving
+  no visual indication that they were irrelevant and making it unclear whether
+  duration values would be preserved when switching back to "pulse". Duration
+  entries are now disabled whenever mode is "continuous" (values are retained
+  in the fields, so switching back to "pulse" restores them) and re-enabled
+  when mode is "pulse".
+- **Save profile silently ignored TypeError from bad duration data** - if a
+  pulse binding somehow had `None` duration values, `_compose_profile_files()`
+  raised `TypeError` which was not caught by the `except ValueError` guard in
+  `_on_save_profile()`, causing the save to fail with no error shown to the
+  user. The guard now catches `TypeError` too, and `_compose_profile_files()`
+  raises an explicit `ValueError` with a clear message for this case.
+
 ## [3.3.2]
 
 ### Fixed

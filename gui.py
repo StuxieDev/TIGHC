@@ -665,31 +665,37 @@ class App:
         self.profile_name_var = tk.StringVar()
         ttk.Entry(meta, textvariable=self.profile_name_var, width=30).grid(row=0, column=1, sticky="w", padx=4, pady=2)
 
-        ttk.Label(meta, text="Window title match(es), comma-separated:").grid(row=1, column=0, sticky="w", padx=4, pady=2)
+        ttk.Label(meta, text="Window title match(es), comma-separated (case-sensitive):").grid(row=1, column=0, sticky="w", padx=4, pady=2)
         self.profile_windows_var = tk.StringVar()
         ttk.Entry(meta, textvariable=self.profile_windows_var, width=50).grid(row=1, column=1, sticky="w", padx=4, pady=2)
 
-        ttk.Label(meta, text="Continuous priority order (comma-separated ids):").grid(row=2, column=0, sticky="w", padx=4, pady=2)
-        self.profile_priority_var = tk.StringVar()
-        ttk.Entry(meta, textvariable=self.profile_priority_var, width=50).grid(row=2, column=1, sticky="w", padx=4, pady=2)
+        self.profile_exact_match_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            meta, text="Exact window title match (prevents e.g. 'grounded' matching 'grounded 2')",
+            variable=self.profile_exact_match_var,
+        ).grid(row=2, column=1, sticky="w", padx=4, pady=2)
 
-        ttk.Label(meta, text="Idle (background) vibe % low/high:").grid(row=3, column=0, sticky="w", padx=4, pady=2)
+        ttk.Label(meta, text="Continuous priority order (comma-separated ids):").grid(row=3, column=0, sticky="w", padx=4, pady=2)
+        self.profile_priority_var = tk.StringVar()
+        ttk.Entry(meta, textvariable=self.profile_priority_var, width=50).grid(row=3, column=1, sticky="w", padx=4, pady=2)
+
+        ttk.Label(meta, text="Idle (background) vibe % low/high (0-100):").grid(row=4, column=0, sticky="w", padx=4, pady=2)
         bg_frame = ttk.Frame(meta)
-        bg_frame.grid(row=3, column=1, sticky="w")
+        bg_frame.grid(row=4, column=1, sticky="w")
         self.profile_bg_low_var = tk.StringVar()
         self.profile_bg_high_var = tk.StringVar()
         ttk.Entry(bg_frame, textvariable=self.profile_bg_low_var, width=8).pack(side="left")
         ttk.Entry(bg_frame, textvariable=self.profile_bg_high_var, width=8).pack(side="left", padx=4)
 
         self._make_accent_button(meta, text="Save profile", command=self._on_save_profile).grid(
-            row=4, column=1, sticky="w", pady=6
+            row=5, column=1, sticky="w", pady=6
         )
 
         # Cover art thumbnail sits in its own column, spanning every row
         # above so it reads as "attached to this profile" rather than just
         # another form field.
         artwork_frame = ttk.Frame(meta)
-        artwork_frame.grid(row=0, column=2, rowspan=5, sticky="n", padx=(16, 4))
+        artwork_frame.grid(row=0, column=2, rowspan=6, sticky="n", padx=(16, 4))
         self.profile_artwork_label = ttk.Label(artwork_frame, text="(no cover art)", style="Hint.TLabel")
         self.profile_artwork_label.pack()
         ttk.Button(artwork_frame, text="Change cover art...", command=self._on_change_artwork).pack(pady=(6, 0))
@@ -803,9 +809,10 @@ class App:
         profile = self.controller.profiles[profile_id]
         self.profile_name_var.set(profile.name)
         self.profile_windows_var.set(", ".join(profile.window_titles))
-        self.profile_priority_var.set(", ".join(b.id for b in profile.continuous))
-        self.profile_bg_low_var.set(f"{profile.background.low:.2f}")
-        self.profile_bg_high_var.set(f"{profile.background.high:.2f}")
+        self.profile_exact_match_var.set(profile.window_title_exact)
+        self.profile_priority_var.set(", ".join(profile.priority))
+        self.profile_bg_low_var.set(f"{profile.background.low * 100:.0f}")
+        self.profile_bg_high_var.set(f"{profile.background.high * 100:.0f}")
         self.current_bindings = [self._binding_to_editable(b) for b in profile.bindings]
         self._refresh_bindings_tree()
         self._refresh_profile_artwork()
@@ -880,8 +887,8 @@ class App:
             "New profile", "Display name:", initialvalue=new_id.title(), parent=self.root
         ) or new_id
         window_title = simpledialog.askstring(
-            "New profile", "Window title to match (lowercase substring):", initialvalue=new_id.lower(), parent=self.root
-        ) or new_id.lower()
+            "New profile", "Window title to match (case-sensitive substring):", initialvalue=new_id, parent=self.root
+        ) or new_id
 
         template_dir = PROFILES_DIR / "minecraft"
         if (template_dir / "keybinds.json").exists() and (template_dir / "ranges.json").exists():
@@ -891,7 +898,7 @@ class App:
             keybinds = copy.deepcopy(tighc.DEFAULT_MINECRAFT_KEYBINDS)
             ranges = copy.deepcopy(tighc.DEFAULT_MINECRAFT_RANGES)
         keybinds["name"] = display_name
-        keybinds["window_titles"] = [window_title.lower()]
+        keybinds["window_titles"] = [window_title]
 
         new_dir.mkdir(parents=True)
         (new_dir / "keybinds.json").write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
@@ -939,12 +946,13 @@ class App:
         calls this.
         """
         name = self.profile_name_var.get().strip() or self.current_profile_id
-        window_titles = [t.strip().lower() for t in self.profile_windows_var.get().split(",") if t.strip()]
+        window_titles = [t.strip() for t in self.profile_windows_var.get().split(",") if t.strip()]
         if not window_titles:
             raise ValueError("at least one window title is required")
+        exact_match = self.profile_exact_match_var.get()
         priority = [t.strip() for t in self.profile_priority_var.get().split(",") if t.strip()]
-        bg_low = float(self.profile_bg_low_var.get())
-        bg_high = float(self.profile_bg_high_var.get())
+        bg_low = float(self.profile_bg_low_var.get()) / 100.0
+        bg_high = float(self.profile_bg_high_var.get()) / 100.0
         VibeRange(bg_low, bg_high)
 
         keybinds = {
@@ -959,6 +967,8 @@ class App:
                 for b in self.current_bindings
             ],
         }
+        if exact_match:
+            keybinds["window_title_exact"] = True
         # steamgriddb_id isn't editable via this form (see
         # _on_change_artwork's dialog instead) - carry the currently-loaded
         # value forward so a routine save here doesn't silently clear it.
@@ -971,6 +981,8 @@ class App:
             VibeRange(b["vibe_low"], b["vibe_high"])
             entry = {"vibe": [b["vibe_low"], b["vibe_high"]]}
             if b["mode"] == "pulse":
+                if b["duration_low"] is None or b["duration_high"] is None:
+                    raise ValueError(f"pulse binding '{b['id']}' is missing duration values")
                 DurationRange(b["duration_low"], b["duration_high"])
                 entry["duration"] = [b["duration_low"], b["duration_high"]]
             ranges[b["id"]] = entry
@@ -997,7 +1009,7 @@ class App:
 
         try:
             keybinds, ranges = self._compose_profile_files()
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             messagebox.showerror("Save profile", f"Invalid value: {e}")
             return
 
@@ -1295,8 +1307,8 @@ class App:
         keys_var = tk.StringVar(value=",".join(existing["keys"]) if existing else "")
         mode_var = tk.StringVar(value=existing["mode"] if existing else "pulse")
         devices_var = tk.StringVar(value=",".join(existing["devices"]) if existing else "all")
-        vibe_low_var = tk.StringVar(value=str(existing["vibe_low"]) if existing else "0.30")
-        vibe_high_var = tk.StringVar(value=str(existing["vibe_high"]) if existing else "0.60")
+        vibe_low_var = tk.StringVar(value=f"{existing['vibe_low'] * 100:.0f}" if existing else "30")
+        vibe_high_var = tk.StringVar(value=f"{existing['vibe_high'] * 100:.0f}" if existing else "60")
         has_duration = bool(existing and existing["duration_low"] is not None)
         duration_low_var = tk.StringVar(value=str(existing["duration_low"]) if has_duration else "0.15")
         duration_high_var = tk.StringVar(value=str(existing["duration_high"]) if has_duration else "0.25")
@@ -1311,8 +1323,21 @@ class App:
         row_entry(3, "Devices (nicknames or 'all'):", devices_var)
         row_entry(4, "Vibe % low (0-100):", vibe_low_var, width=10)
         row_entry(5, "Vibe % high (0-100):", vibe_high_var, width=10)
-        row_entry(6, "Duration sec low (pulse only):", duration_low_var, width=10)
-        row_entry(7, "Duration sec high (pulse only):", duration_high_var, width=10)
+        ttk.Label(dialog, text="Duration sec low (pulse only):").grid(row=6, column=0, sticky="w", padx=6, pady=3)
+        dur_low_entry = ttk.Entry(dialog, textvariable=duration_low_var, width=10)
+        dur_low_entry.grid(row=6, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(dialog, text="Duration sec high (pulse only):").grid(row=7, column=0, sticky="w", padx=6, pady=3)
+        dur_high_entry = ttk.Entry(dialog, textvariable=duration_high_var, width=10)
+        dur_high_entry.grid(row=7, column=1, sticky="w", padx=6, pady=3)
+
+        def on_mode_change(*_):
+            state = "normal" if mode_var.get() == "pulse" else "disabled"
+            dur_low_entry.config(state=state)
+            dur_high_entry.config(state=state)
+
+        mode_var.trace_add("write", on_mode_change)
+        on_mode_change()  # set initial state to match whichever mode is pre-selected
+
         ttk.Checkbutton(dialog, text="Enabled", variable=enabled_var).grid(row=8, column=1, sticky="w", padx=6, pady=3)
 
         result = {}  # populated by on_ok() below; stays empty if the dialog is cancelled

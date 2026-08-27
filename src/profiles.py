@@ -77,6 +77,7 @@ class PulseBinding:
     """A one-shot binding fired on press, scoped to `devices`."""
 
     spec: PulseSpec
+    id: str
     devices: Optional[frozenset]  # None means "all channels"
 
 
@@ -86,11 +87,17 @@ class Profile:
 
     id: str
     name: str
-    window_titles: list  # lowercased substrings matched against the foreground window title
+    window_titles: list  # strings matched case-sensitively against the foreground window title
     continuous: list  # ordered [ContinuousBinding, ...], first pressed+targeted match wins
     pulse_bindings: dict  # key/button token -> PulseBinding
     background: VibeRange
     bindings: list  # raw parsed bindings, in file order, for the startup banner
+    priority: list  # raw priority list from keybinds.json (all binding ids, any mode); engine uses it only for continuous ordering
+    # When True, window_titles entries must equal the full window title exactly
+    # (case-sensitive). When False (default), each entry is a substring - the
+    # title just needs to contain it. Use exact=True when two games share a
+    # common prefix, e.g. "Grounded" would otherwise also match "Grounded 2".
+    window_title_exact: bool = False
     # Optional, purely cosmetic: pins this profile to an exact SteamGridDB
     # game id for cover-art lookup (see steamgriddb.get_profile_artwork()),
     # bypassing the by-name search that could otherwise match the wrong game
@@ -104,9 +111,14 @@ class Profile:
     # override the image without overriding the game, or vice versa.
     steamgriddb_grid_id: Optional[int] = None
 
-    def matches(self, window_title_lower: str) -> bool:
-        """True if this profile's window_titles has a substring match in the (already-lowercased) window title."""
-        return any(t in window_title_lower for t in self.window_titles)
+    def matches(self, window_title: str) -> bool:
+        """True if this profile's window_titles matches the window title (case-sensitive).
+
+        Uses exact equality when window_title_exact is True, substring search otherwise.
+        """
+        if self.window_title_exact:
+            return window_title in self.window_titles
+        return any(t in window_title for t in self.window_titles)
 
     def range_for(self, channel_nickname: str, pressed_keys: set) -> VibeRange:
         """
@@ -176,7 +188,8 @@ def _load_profile(profile_dir: Path) -> Profile:
     ranges = json.loads(ranges_path.read_text(encoding="utf-8"))
 
     name = keybinds.get("name", profile_dir.name)
-    window_titles = [t.lower() for t in keybinds.get("window_titles", [])]
+    window_titles = [t for t in keybinds.get("window_titles", [])]
+    window_title_exact = bool(keybinds.get("window_title_exact", False))
     if not window_titles:
         raise ValueError("keybinds.json needs at least one entry in window_titles")
 
@@ -248,7 +261,7 @@ def _load_profile(profile_dir: Path) -> Profile:
             # all share one entry, keyed separately per token for fast
             # lookup in on_key_press()/on_mouse_scroll().
             spec = PulseSpec(vibe, duration)
-            pulse_binding = PulseBinding(spec=spec, devices=target_devices)
+            pulse_binding = PulseBinding(spec=spec, id=bid, devices=target_devices)
             for k in keys:
                 pulse_bindings[k] = pulse_binding
 
@@ -269,10 +282,12 @@ def _load_profile(profile_dir: Path) -> Profile:
         id=profile_dir.name,
         name=name,
         window_titles=window_titles,
+        window_title_exact=window_title_exact,
         continuous=continuous,
         pulse_bindings=pulse_bindings,
         background=background,
         bindings=parsed_bindings,
+        priority=priority,
         steamgriddb_id=keybinds.get("steamgriddb_id"),
         steamgriddb_grid_id=keybinds.get("steamgriddb_grid_id"),
     )
