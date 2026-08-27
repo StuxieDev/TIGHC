@@ -5,7 +5,7 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.8.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.9.0** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 ![TIGHC](assets/logo.png)
@@ -94,19 +94,15 @@ src/
 cli.py                            # headless CLI entry point (imports src/tighc.py)
 gui.py                            # interactive configurator + launcher (also imports src/tighc.py)
 assets/                           # icon.png/icon.ico (window icon) and logo.png (About tab banner)
-configs/                          # per-install runtime config/state - gitignored, not source
-  haptics.json             # global settings (connection, panic key, smoothing, ...)
-  devices.json                    # remembers a nickname for each connected motor/capability
-  steamgriddb_config.json         # your SteamGridDB API key - keep this private, don't share/commit it
-  steamgriddb_cache.json          # resolved game ids / chosen art per profile, so repeat launches don't re-fetch
-artwork_cache/                    # downloaded cover-art images
-profiles/                         # git submodule (TIGHC-Profiles) - see Quick start
-  minecraft/                      # seeded automatically on first run if profiles/ doesn't exist at all
-    keybinds.json                 # which keys/buttons do what, and how
-    ranges.json                   # intensity/duration bands for each binding
-  grounded2/                      # included as a second example profile
-    keybinds.json
-    ranges.json
+profiles/                         # git submodule (TIGHC-Profiles) - bundled defaults, read-only at runtime
+%APPDATA%\TIGHC\  (or ~/.local/share/TIGHC/ on Linux)  # per-user data, never touched by git
+  profiles/                       # your working copy of profiles (seeded from the submodule on first run)
+  configs/
+    haptics.json                  # global settings (connection, panic key, smoothing, ...)
+    devices.json                  # remembers a nickname for each connected motor/capability
+    steamgriddb_config.json       # your SteamGridDB API key - keep this private
+    steamgriddb_cache.json        # resolved game ids / chosen art per profile
+  artwork_cache/                  # downloaded cover-art images
   <your-other-game>/
     keybinds.json
     ranges.json

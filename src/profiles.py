@@ -1,9 +1,15 @@
 """Game profiles (profiles/<id>/profile.json): what each game's bindings are
 and how to match its window title.
 
-Each profile is a folder under profiles/<id>/ containing a single profile.json
-with window matching metadata and a bindings array where each entry contains
-its own keys, devices, and vibe range inline.
+Each profile is a folder under PROFILES_DIR/<id>/ containing a single
+profile.json with window matching metadata and a bindings array where each
+entry contains its own keys, devices, and vibe range inline.
+
+User profiles live in the platform-standard app data directory (see
+src/paths.py). On startup, seed_user_profiles() copies any bundled profile
+(from the profiles/ submodule at BUNDLED_PROFILES_DIR) that isn't yet present
+in the user dir, so new profiles from a submodule update appear automatically
+without overwriting the user's edits to existing ones.
 
 Profiles are matched against the foreground window title so haptics
 automatically follow whatever game currently has focus, and go idle when
@@ -11,33 +17,13 @@ nothing matches.
 """
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from src.paths import PROFILES_DIR
+from src.paths import BUNDLED_PROFILES_DIR, PROFILES_DIR
 from src.ranges import VibeRange
-
-# Seeded to profiles/minecraft/ the first time the script runs (i.e. when
-# profiles/ doesn't exist yet). Copy this folder to add another game.
-DEFAULT_MINECRAFT_PROFILE = {
-    "name": "Minecraft",
-    "window_titles": ["minecraft"],
-    "priority": ["attack", "use", "sneak", "sprint", "movement"],
-    "bindings": [
-        {"id": "movement",    "keys": ["w", "a", "s", "d"],              "enabled": True, "devices": ["all"], "vibe": [0.40, 0.65]},
-        {"id": "sprint",      "keys": ["ctrl"],                          "enabled": True, "devices": ["all"], "vibe": [0.50, 0.70]},
-        {"id": "sneak",       "keys": ["shift"],                         "enabled": True, "devices": ["all"], "vibe": [0.30, 0.50]},
-        {"id": "attack",      "keys": ["mouse_left"],                    "enabled": True, "devices": ["all"], "vibe": [0.75, 1.00]},
-        {"id": "use",         "keys": ["mouse_right"],                   "enabled": True, "devices": ["all"], "vibe": [0.55, 0.80]},
-        {"id": "jump",        "keys": ["space"],                         "enabled": True, "devices": ["all"], "vibe": [0.70, 0.95]},
-        {"id": "pick_block",  "keys": ["mouse_middle"],                  "enabled": True, "devices": ["all"], "vibe": [0.30, 0.45]},
-        {"id": "drop",        "keys": ["q"],                             "enabled": True, "devices": ["all"], "vibe": [0.25, 0.40]},
-        {"id": "offhand",     "keys": ["f"],                             "enabled": True, "devices": ["all"], "vibe": [0.25, 0.40]},
-        {"id": "inventory",   "keys": ["e"],                             "enabled": True, "devices": ["all"], "vibe": [0.15, 0.25]},
-        {"id": "switch_item", "keys": ["1","2","3","4","5","6","7","8","9","scroll"], "enabled": True, "devices": ["all"], "vibe": [0.15, 0.30]},
-    ],
-}
 
 
 @dataclass(frozen=True)
@@ -87,15 +73,86 @@ class Profile:
         return any(t in window_title for t in self.window_titles)
 
 
-def _seed_default_profile():
-    """Write profiles/minecraft/profile.json from DEFAULT_MINECRAFT_PROFILE."""
-    # Only ever called when PROFILES_DIR doesn't exist yet (see
-    # load_profiles()), so this always creates a brand-new folder - it's not
-    # meant to "reset" an existing, possibly user-edited minecraft profile.
+def seed_user_profiles():
+    """
+    Copy any bundled profile (from BUNDLED_PROFILES_DIR) that isn't yet
+    present in the user profiles dir (PROFILES_DIR). Runs on every startup so
+    new profiles added via a submodule update appear automatically. Profiles
+    the user has already customised are left untouched.
+
+    If no bundled profiles dir exists (e.g. the submodule wasn't checked out),
+    falls back to seeding the built-in Minecraft profile so the app always
+    starts with at least one profile.
+    """
+    if BUNDLED_PROFILES_DIR.exists():
+        for entry in sorted(BUNDLED_PROFILES_DIR.iterdir()):
+            if not entry.is_dir() or not (entry / "profile.json").exists():
+                continue
+            dest = PROFILES_DIR / entry.name
+            if not dest.exists():
+                try:
+                    shutil.copytree(entry, dest)
+                except OSError as e:
+                    print(f"Could not seed profile '{entry.name}' ({e}).")
+    else:
+        # Submodule not checked out - seed the built-in Minecraft default.
+        _seed_builtin_minecraft()
+
+
+def restore_profile_from_bundled(profile_id: str) -> bool:
+    """
+    Overwrite the user's copy of `profile_id` with the bundled version.
+    Returns True if the bundled version exists and the restore succeeded,
+    False otherwise (bundled profile not found, or write error).
+    """
+    src = BUNDLED_PROFILES_DIR / profile_id
+    if not src.exists() or not (src / "profile.json").exists():
+        return False
+    dest = PROFILES_DIR / profile_id
+    try:
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
+        return True
+    except OSError:
+        return False
+
+
+def has_bundled_version(profile_id: str) -> bool:
+    """True if profile_id exists in the bundled profiles (can be restored to default)."""
+    return (BUNDLED_PROFILES_DIR / profile_id / "profile.json").exists()
+
+
+_BUILTIN_MINECRAFT = {
+    "name": "Minecraft",
+    "window_titles": ["minecraft"],
+    "priority": ["attack", "use", "sneak", "sprint", "movement"],
+    "bindings": [
+        {"id": "movement",    "keys": ["w", "a", "s", "d"],              "enabled": True, "devices": ["all"], "vibe": [0.40, 0.65]},
+        {"id": "sprint",      "keys": ["ctrl"],                          "enabled": True, "devices": ["all"], "vibe": [0.50, 0.70]},
+        {"id": "sneak",       "keys": ["shift"],                         "enabled": True, "devices": ["all"], "vibe": [0.30, 0.50]},
+        {"id": "attack",      "keys": ["mouse_left"],                    "enabled": True, "devices": ["all"], "vibe": [0.75, 1.00]},
+        {"id": "use",         "keys": ["mouse_right"],                   "enabled": True, "devices": ["all"], "vibe": [0.55, 0.80]},
+        {"id": "jump",        "keys": ["space"],                         "enabled": True, "devices": ["all"], "vibe": [0.70, 0.95]},
+        {"id": "pick_block",  "keys": ["mouse_middle"],                  "enabled": True, "devices": ["all"], "vibe": [0.30, 0.45]},
+        {"id": "drop",        "keys": ["q"],                             "enabled": True, "devices": ["all"], "vibe": [0.25, 0.40]},
+        {"id": "offhand",     "keys": ["f"],                             "enabled": True, "devices": ["all"], "vibe": [0.25, 0.40]},
+        {"id": "inventory",   "keys": ["e"],                             "enabled": True, "devices": ["all"], "vibe": [0.15, 0.25]},
+        {"id": "switch_item", "keys": ["1","2","3","4","5","6","7","8","9","scroll"], "enabled": True, "devices": ["all"], "vibe": [0.15, 0.30]},
+    ],
+}
+
+# Keep the old name around so any external code that imports it still works.
+DEFAULT_MINECRAFT_PROFILE = _BUILTIN_MINECRAFT
+
+
+def _seed_builtin_minecraft():
     profile_dir = PROFILES_DIR / "minecraft"
     profile_dir.mkdir(parents=True, exist_ok=True)
-    (profile_dir / "profile.json").write_text(json.dumps(DEFAULT_MINECRAFT_PROFILE, indent=2), encoding="utf-8")
-    print(f"Created default profile at {profile_dir} - copy this folder to add more games.")
+    dest = profile_dir / "profile.json"
+    if not dest.exists():
+        dest.write_text(json.dumps(_BUILTIN_MINECRAFT, indent=2), encoding="utf-8")
+        print(f"Created built-in Minecraft profile at {profile_dir}.")
 
 
 def _parse_devices_field(binding: dict) -> Optional[frozenset]:
@@ -191,31 +248,22 @@ def _load_profile(profile_dir: Path) -> Profile:
 
 def load_profiles() -> dict:
     """
-    Discover and load every profile folder under profiles/ into a
-    dict keyed by profile id (the folder name), in alphabetical order.
+    Seed from bundled profiles, then discover and load every profile folder
+    under PROFILES_DIR into a dict keyed by profile id (the folder name), in
+    alphabetical order.
 
-    Seeds profiles/minecraft/ first if the whole profiles/ directory doesn't
-    exist yet (a brand-new install). Any folder that fails to load raises
-    RuntimeError immediately (wrapping the underlying ValueError/OSError/
-    KeyError with the offending folder's name) rather than being silently
-    skipped - a typo in one profile shouldn't produce a program that
-    silently starts with fewer profiles than the user configured.
+    Any folder that fails to load raises RuntimeError immediately (wrapping
+    the underlying ValueError/OSError/KeyError with the offending folder's
+    name) rather than being silently skipped - a typo in one profile shouldn't
+    produce a program that silently starts with fewer profiles than the user
+    configured.
     """
-    if not PROFILES_DIR.exists():
-        try:
-            _seed_default_profile()
-        except OSError as e:
-            print(f"Could not create default profile ({e}).")
+    seed_user_profiles()
 
     profiles = {}
-    if not PROFILES_DIR.exists():
-        return profiles
-
     for entry in sorted(PROFILES_DIR.iterdir()):
         if not entry.is_dir():
             continue
-        # Folders without profile.json (e.g. profiles/assets/, holding the
-        # submodule's own README images) aren't profiles at all - skip them.
         if not (entry / "profile.json").exists():
             continue
         try:

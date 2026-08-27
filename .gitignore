@@ -1,10 +1,8 @@
-# Per-install runtime config/state (haptics.json, devices.json,
-# steamgriddb_config.json - which holds a personal API credential -
-# and steamgriddb_cache.json) - generated on first run, not source.
+# User data now lives in %APPDATA%\TIGHC (or ~/.local/share/TIGHC on Linux).
+# These repo-root dirs may exist on older installs - keep them gitignored.
 configs/
-
-# Generated/cached, not source
-__pycache__/
-*.pyc
 artwork_cache/
 
+# Generated, not source
+__pycache__/
+*.pyc

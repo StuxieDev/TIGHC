@@ -5,6 +5,33 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.0]
+
+### Changed
+- **User data moved to AppData** — profiles, configs, and artwork cache now live
+  in the platform-standard per-user app directory (`%APPDATA%\TIGHC` on Windows,
+  `~/.local/share/TIGHC` on Linux/Steam Deck) instead of the repo root. This
+  means git updates and submodule updates can no longer overwrite your profiles
+  or settings.
+- **Bundled profiles seed automatically** — on startup, any profile from the
+  `profiles/` submodule that isn't yet in your user data dir is copied there,
+  so new profiles from a submodule update appear without touching your edits.
+- **"Restore to bundled" button** in the Profiles tab overwrites your copy of a
+  profile with the bundled (submodule) version. Only available for profiles that
+  have a bundled counterpart.
+- **"Reset settings to defaults" button** in the Settings tab deletes your
+  `haptics.json` and reverts all settings to the built-in defaults.
+- **Folder buttons** in the Profiles tab and Settings tab open the user profiles
+  dir, configs dir, user data dir, and bundled profiles dir in the system file
+  explorer.
+
+### Breaking changes
+- On first launch after this update, TIGHC will seed a fresh copy of all
+  bundled profiles to `%APPDATA%\TIGHC\profiles\` and read configs from
+  `%APPDATA%\TIGHC\configs\`. Any `configs/` or `profiles/` edits you made
+  under the repo root will not be migrated automatically - copy them manually
+  if you want to keep them.
+
 ## [3.8.0]
 
 ### Changed

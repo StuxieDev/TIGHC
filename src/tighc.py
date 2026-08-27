@@ -33,7 +33,7 @@ this facade.
 
 from src.metadata import AUTHOR_NAME, AUTHOR_URL, PROJECT_NAME, PROJECT_SHORT_NAME, REPO_URL, WEBSITE_URL
 from src.version import __version__, get_version, get_version_tuple
-from src.paths import ARTWORK_CACHE_DIR, CONFIGS_DIR, PROFILES_DIR, REPO_ROOT
+from src.paths import ARTWORK_CACHE_DIR, BUNDLED_PROFILES_DIR, CONFIGS_DIR, PROFILES_DIR, REPO_ROOT, USER_DATA_DIR
 from src.ranges import DurationRange, FloatRange, VibeRange
 from src.haptics import (
     BACKGROUND_TICK,
@@ -70,8 +70,10 @@ from src.profiles import (
     Profile,
     _load_profile,
     _parse_devices_field,
-    _seed_default_profile,
+    has_bundled_version,
     load_profiles,
+    restore_profile_from_bundled,
+    seed_user_profiles,
 )
 from src.input import InputState, get_foreground_window_title, normalize_key
 from src.engine import HapticsController

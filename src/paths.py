@@ -4,29 +4,46 @@ Split out on its own so every other module (haptics, devices,
 profiles, steamgriddb) can depend on these paths without pulling in
 anything heavier - keeps the dependency graph a simple fan-out from here
 rather than everything routing through one large module.
+
+User data (configs, profiles, artwork cache) lives in the platform-standard
+per-user app directory so it survives git updates and submodule updates:
+  Windows: %APPDATA%\TIGHC\
+  Linux:   ~/.local/share/TIGHC/
+
+The bundled/default profiles (the profiles/ submodule) live at REPO_ROOT and
+are read-only from the user's perspective. On startup, profiles.py seeds any
+bundled profile not yet present in the user data dir, so new profiles from a
+submodule update appear automatically without clobbering user edits.
 """
 
+import os
 from pathlib import Path
 
-# Every path below is resolved relative to the repo root, not to this
-# file's own directory - this file lives at <repo root>/src/paths.py, so
-# two parents up is the actual project root regardless of which specific
-# src/ module ends up importing it.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Per-install runtime config/state - gitignored, never source (see
-# .gitignore) - created with sensible defaults the first time it's needed.
-CONFIGS_DIR = REPO_ROOT / "configs"
+# Bundled (default) profiles: the profiles/ git submodule at the repo root.
+# These are never written to by the running app - treat as read-only.
+BUNDLED_PROFILES_DIR = REPO_ROOT / "profiles"
+
+# Platform-standard per-user app directory.
+if os.name == "nt":
+    _base = Path(os.environ.get("APPDATA", Path.home()))
+else:
+    _base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+
+USER_DATA_DIR = _base / "TIGHC"
+
+# Per-install runtime config/state (haptics.json, devices.json, ...)
+CONFIGS_DIR = USER_DATA_DIR / "configs"
 CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
 
-# profiles/ is its own git repository (TIGHC-Profiles) checked out as a
-# submodule at the repo root - see the main README's Quick start for how
-# it's cloned/updated.
-PROFILES_DIR = REPO_ROOT / "profiles"
+# User's working copy of game profiles - seeded from BUNDLED_PROFILES_DIR on
+# first run, then fully owned by the user (GUI reads/writes here).
+PROFILES_DIR = USER_DATA_DIR / "profiles"
+PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
-# Downloaded cover-art images - generated/cached, not really a "config", so
-# it stays at the repo root alongside profiles/ rather than inside configs/.
-ARTWORK_CACHE_DIR = REPO_ROOT / "artwork_cache"
+# Downloaded cover-art images.
+ARTWORK_CACHE_DIR = USER_DATA_DIR / "artwork_cache"
 
 
 if __name__ == "__main__":

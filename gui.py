@@ -7,7 +7,7 @@ individual motors/capabilities, build game profiles (keybinds + ranges +
 which device each keybind drives), tweak global settings, and start/stop
 the haptics engine - all from one window. Everything you do here is written
 to the same JSON files src/tighc.py reads (configs/haptics.json,
-configs/devices.json, profiles/<id>/{keybinds,ranges}.json), so hand-editing
+configs/devices.json, profiles/<id>/profile.json), so hand-editing
 those files and using this GUI are fully interchangeable.
 
 The buttplug/asyncio side of things runs on a dedicated background thread
@@ -20,6 +20,8 @@ import copy
 import json
 import queue
 import shutil
+import subprocess
+import sys
 import threading
 import tkinter as tk
 import webbrowser
@@ -37,17 +39,22 @@ from src import tighc
 from src.tighc import (
     AUTHOR_NAME,
     AUTHOR_URL,
+    BUNDLED_PROFILES_DIR,
+    CONFIGS_DIR,
     PROFILES_DIR,
     PROJECT_NAME,
     PROJECT_SHORT_NAME,
     REPO_URL,
+    USER_DATA_DIR,
     WEBSITE_URL,
     HapticsController,
     VibeRange,
     __version__,
+    has_bundled_version,
     load_haptics_config,
     load_device_registry,
     load_profiles,
+    restore_profile_from_bundled,
     save_device_registry,
 )
 
@@ -654,6 +661,8 @@ class App:
         )
         self._make_accent_button(top, text="New profile...", command=self._on_new_profile).pack(side="left", padx=4)
         ttk.Button(top, text="Reload all from disk", command=self._on_reload_profiles).pack(side="left", padx=4)
+        ttk.Button(top, text="Restore to bundled...", command=self._on_restore_profile).pack(side="left", padx=4)
+        ttk.Button(top, text="Open profiles folder", command=lambda: self._open_folder(PROFILES_DIR)).pack(side="left", padx=4)
 
         body = self._build_scrollable_body(frame, padding=(0, 0))
 
@@ -954,6 +963,44 @@ class App:
                 "devices": b["devices"], "vibe": [b["vibe_low"], b["vibe_high"]],
             })
         return profile
+
+    def _on_restore_profile(self):
+        """
+        "Restore to bundled..." button handler: overwrites the currently
+        selected user profile with the bundled (submodule) version, if one
+        exists. Asks for confirmation first since this discards any edits.
+        """
+        if not self.current_profile_id:
+            messagebox.showinfo("Restore to bundled", "No profile selected.")
+            return
+        if not has_bundled_version(self.current_profile_id):
+            messagebox.showinfo(
+                "Restore to bundled",
+                f"'{self.current_profile_id}' has no bundled version - it was created by you and can't be restored.",
+            )
+            return
+        if not messagebox.askyesno(
+            "Restore to bundled",
+            f"Overwrite your copy of '{self.current_profile_id}' with the bundled default?\n\nThis cannot be undone.",
+        ):
+            return
+        if restore_profile_from_bundled(self.current_profile_id):
+            self._on_reload_profiles()
+            self._enqueue_log(f"Restored '{self.current_profile_id}' to bundled default.")
+        else:
+            messagebox.showerror("Restore to bundled", "Restore failed - see console for details.")
+
+    @staticmethod
+    def _open_folder(path):
+        """Open a folder in the system file explorer, creating it first if needed."""
+        path.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            import os
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
 
     def _on_save_profile(self):
         """
@@ -1699,6 +1746,49 @@ class App:
             text="This takes effect immediately (no restart needed) - artwork is fetched per profile on the Profiles/Test tabs.",
             style="Hint.TLabel",
         ).grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+        row += 1
+
+        ttk.Separator(body, orient="horizontal").grid(row=row, column=0, columnspan=2, sticky="ew", pady=12)
+        row += 1
+        ttk.Label(body, text="User data folders", style="Header.TLabel").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
+        row += 1
+
+        folders_frame = ttk.Frame(body)
+        folders_frame.grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+        ttk.Button(folders_frame, text="Open user data folder", command=lambda: self._open_folder(USER_DATA_DIR)).pack(side="left", padx=(0, 6))
+        ttk.Button(folders_frame, text="Open configs folder", command=lambda: self._open_folder(CONFIGS_DIR)).pack(side="left", padx=(0, 6))
+        ttk.Button(folders_frame, text="Open profiles folder", command=lambda: self._open_folder(PROFILES_DIR)).pack(side="left", padx=(0, 6))
+        ttk.Button(folders_frame, text="Open bundled profiles folder", command=lambda: self._open_folder(BUNDLED_PROFILES_DIR)).pack(side="left")
+        row += 1
+        ttk.Label(
+            body,
+            text="User data (your profiles and settings) is stored separately from the app so it survives updates.",
+            style="Hint.TLabel",
+        ).grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+        row += 1
+
+        reset_frame = ttk.Frame(body)
+        reset_frame.grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+        ttk.Button(reset_frame, text="Reset settings to defaults", command=self._on_reset_settings).pack(side="left")
+
+    def _on_reset_settings(self):
+        """Reset haptics.json to defaults by deleting it and reloading the Settings form."""
+        if not messagebox.askyesno(
+            "Reset settings to defaults",
+            "Delete your haptics.json and reset all settings to their defaults?\n\nThis cannot be undone.",
+        ):
+            return
+        path = tighc.HAPTICS_CONFIG_PATH
+        if path.exists():
+            path.unlink()
+        tighc.apply_haptics_config(tighc.DEFAULT_HAPTICS_CONFIG)
+        self._enqueue_log("Settings reset to defaults.")
+        # Rebuild the settings form so the fields reflect the new defaults.
+        for widget in self.settings_tab.winfo_children():
+            widget.destroy()
+        self._build_settings_tab()
 
     def _on_save_steamgriddb_settings(self):
         """"Save cover art settings" button handler: persist to steamgriddb_config.json and immediately try to (re)load artwork."""
