@@ -1887,7 +1887,7 @@ class App:
             body,
             text=(
                 "Drives a Buttplug/Intiface haptic device from keyboard/mouse input in any game, "
-                "via configurable per-game profiles, continuous/pulse keybinds, and per-motor device targeting."
+                "via configurable per-game profiles, per-binding intensity ranges, and per-motor device targeting."
             ),
             wraplength=760, justify="left",
         ).pack(anchor="w", pady=(4, 10))
@@ -1940,26 +1940,83 @@ class App:
 
         changelog_frame = ttk.Frame(body)
         changelog_frame.pack(fill="both", expand=True)
-        self.changelog_text = scrolledtext.ScrolledText(changelog_frame, wrap="word", font=MONOSPACE_FONT)
+        self.changelog_text = scrolledtext.ScrolledText(
+            changelog_frame, wrap="word", font=("Segoe UI", 10), padx=8, pady=6
+        )
         self.changelog_text.pack(fill="both", expand=True)
+
+        ct = self.changelog_text
+        ct.tag_configure("h2", font=("Segoe UI", 13, "bold"), foreground=ACCENT_COLOR,
+                         spacing1=18, spacing3=4)
+        ct.tag_configure("h3", font=("Segoe UI", 9, "bold"), foreground="#a5a3b5",
+                         spacing1=10, spacing3=2)
+        ct.tag_configure("bullet", lmargin1=10, lmargin2=22, spacing1=1)
+        ct.tag_configure("bullet_dash", foreground=ACCENT_COLOR)
+        ct.tag_configure("prose", foreground="#a5a3b5", font=("Segoe UI", 9),
+                         spacing1=2, spacing3=4)
+        ct.tag_configure("bold_span", font=("Segoe UI", 10, "bold"))
+        ct.tag_configure("code_span", font=MONOSPACE_FONT, foreground="#cfc4ff")
         self._load_changelog()
 
     def _load_changelog(self):
         """
-        (Re)load CHANGELOG.md's raw text into the changelog viewer. Also
-        wired to the "Reload" button, for after a hand edit to the file
-        without restarting the app. The Text widget is briefly set to
-        "normal" to allow the delete+insert, then back to "disabled" so the
-        user can select/copy text but not accidentally edit the display.
+        (Re)load CHANGELOG.md into the changelog viewer, rendering markdown
+        headings, bullets, bold, and code spans with text tags instead of
+        showing raw markdown. Wired to the "Reload" button too.
         """
+        ct = self.changelog_text
+        ct.config(state="normal")
+        ct.delete("1.0", "end")
+
         try:
-            content = CHANGELOG_PATH.read_text(encoding="utf-8")
+            lines = CHANGELOG_PATH.read_text(encoding="utf-8").splitlines()
         except OSError as e:
-            content = f"(Could not read {CHANGELOG_PATH.name}: {e})"
-        self.changelog_text.config(state="normal")
-        self.changelog_text.delete("1.0", "end")
-        self.changelog_text.insert("1.0", content)
-        self.changelog_text.config(state="disabled")
+            ct.insert("end", f"(Could not read {CHANGELOG_PATH.name}: {e})")
+            ct.config(state="disabled")
+            return
+
+        def insert_inline(text):
+            import re
+            parts = re.split(r"(\*\*[^*]+\*\*|`[^`]+`)", text)
+            for part in parts:
+                if part.startswith("**") and part.endswith("**"):
+                    ct.insert("end", part[2:-2], "bold_span")
+                elif part.startswith("`") and part.endswith("`"):
+                    ct.insert("end", part[1:-1], "code_span")
+                else:
+                    ct.insert("end", part)
+
+        in_list = False
+        for line in lines:
+            if line.startswith("## "):
+                if in_list:
+                    ct.insert("end", "\n")
+                    in_list = False
+                ct.insert("end", line[3:].strip() + "\n", "h2")
+            elif line.startswith("### "):
+                if in_list:
+                    ct.insert("end", "\n")
+                    in_list = False
+                ct.insert("end", line[4:].strip() + "\n", "h3")
+            elif line.startswith("- ") or line.startswith("  - "):
+                in_list = True
+                ct.insert("end", "  – ", "bullet_dash")
+                insert_inline(line.lstrip("- ").lstrip())
+                ct.insert("end", "\n", "bullet")
+            elif line.startswith("# "):
+                pass  # skip top-level title — shown as label above
+            elif line.strip():
+                if in_list:
+                    ct.insert("end", "\n")
+                    in_list = False
+                ct.insert("end", line.strip() + "\n", "prose")
+            else:
+                if in_list:
+                    ct.insert("end", "\n")
+                    in_list = False
+                ct.insert("end", "\n")
+
+        ct.config(state="disabled")
 
     # =============================================================== shared plumbing
     def _enqueue_log(self, message):
