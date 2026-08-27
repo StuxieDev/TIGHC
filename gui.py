@@ -57,6 +57,7 @@ from src.tighc import (
     load_device_registry,
     load_profiles,
     restore_profile_from_github,
+    save_age_confirmation,
     save_device_registry,
 )
 
@@ -1920,7 +1921,9 @@ class App:
         path = tighc.HAPTICS_CONFIG_PATH
         if path.exists():
             path.unlink()
-        tighc.apply_haptics_config(tighc.DEFAULT_HAPTICS_CONFIG)
+        reset_cfg = dict(tighc.DEFAULT_HAPTICS_CONFIG)
+        reset_cfg["confirmed_age"] = tighc.CONFIRMED_AGE
+        tighc.apply_haptics_config(reset_cfg)
         self._enqueue_log("Settings reset to defaults.")
         # Rebuild the settings form so the fields reflect the new defaults.
         for widget in self.settings_tab.winfo_children():
@@ -1968,6 +1971,7 @@ class App:
                     "failure_threshold": int(self.cfg_vars["reconnect_threshold"].get()),
                 },
                 "timing": {"background_tick": float(self.cfg_vars["background_tick"].get())},
+                "confirmed_age": tighc.CONFIRMED_AGE,
             }
             VibeRange(*cfg["master"]["range"])
         except ValueError as e:
@@ -2435,9 +2439,11 @@ def main():
     # static definition, not that async callback.
     root.update()
     App._apply_custom_style_layer(root)
-    if not _show_age_gate(root):
-        root.destroy()
-        return
+    if not load_haptics_config().get("confirmed_age", False):
+        if not _show_age_gate(root):
+            root.destroy()
+            return
+        save_age_confirmation()
     root.deiconify()
     # Same foreground-stealing fix as the age gate above - otherwise the
     # main window can open behind the terminal/IDE that launched it.

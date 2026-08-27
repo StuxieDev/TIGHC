@@ -37,6 +37,7 @@ DEFAULT_HAPTICS_CONFIG = {
     "panic_key": {"enabled": True, "key": "f12", "hold_duration": 1.0},
     "auto_reconnect": {"enabled": True, "cooldown": 5.0, "failure_threshold": 10},
     "timing": {"background_tick": 0.18},
+    "confirmed_age": False,
 }
 
 
@@ -96,6 +97,22 @@ RECONNECT_COOLDOWN = HAPTICS_CONFIG["auto_reconnect"]["cooldown"]
 FAILURE_RECONNECT_THRESHOLD = HAPTICS_CONFIG["auto_reconnect"]["failure_threshold"]
 
 BACKGROUND_TICK = HAPTICS_CONFIG["timing"]["background_tick"]
+CONFIRMED_AGE = HAPTICS_CONFIG.get("confirmed_age", False)
+
+
+def save_age_confirmation():
+    """Patch confirmed_age=true into haptics.json without touching any other field."""
+    global CONFIRMED_AGE
+    try:
+        existing = json.loads(HAPTICS_CONFIG_PATH.read_text(encoding="utf-8")) if HAPTICS_CONFIG_PATH.exists() else {}
+    except (OSError, ValueError):
+        existing = {}
+    existing["confirmed_age"] = True
+    try:
+        HAPTICS_CONFIG_PATH.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    CONFIRMED_AGE = True
 
 
 def apply_haptics_config(new_config: dict):
@@ -120,7 +137,7 @@ def apply_haptics_config(new_config: dict):
     global ENABLE_SMOOTHING, SMOOTHING_FACTOR
     global ENABLE_PANIC_KEY, PANIC_KEY, PANIC_HOLD_DURATION
     global ENABLE_AUTO_RECONNECT, RECONNECT_COOLDOWN, FAILURE_RECONNECT_THRESHOLD
-    global BACKGROUND_TICK
+    global BACKGROUND_TICK, CONFIRMED_AGE
 
     # Constructing VibeRange validates the master range the same way
     # startup does - an invalid range raises before anything is written or
@@ -143,6 +160,7 @@ def apply_haptics_config(new_config: dict):
     RECONNECT_COOLDOWN = new_config["auto_reconnect"]["cooldown"]
     FAILURE_RECONNECT_THRESHOLD = new_config["auto_reconnect"]["failure_threshold"]
     BACKGROUND_TICK = new_config["timing"]["background_tick"]
+    CONFIRMED_AGE = new_config.get("confirmed_age", False)
 
 
 if __name__ == "__main__":

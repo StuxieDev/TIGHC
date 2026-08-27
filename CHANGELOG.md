@@ -5,6 +5,13 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.4]
+
+### Changed
+- **Age gate remembered** — once you confirm you're 18+, the confirmation is
+  saved to `haptics.json` (`confirmed_age: true`) and the age gate is skipped
+  on every subsequent launch. Applies to both the GUI and CLI.
+
 ## [3.9.3]
 
 ### Changed

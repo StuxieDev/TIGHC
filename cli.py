@@ -11,7 +11,7 @@ Prefer an interactive configurator? Use `python gui.py` instead.
 
 import asyncio
 
-from src.tighc import AUTHOR_NAME, HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, __version__
+from src.tighc import AUTHOR_NAME, HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, __version__, load_haptics_config, save_age_confirmation
 
 
 def _confirm_age() -> bool:
@@ -28,10 +28,12 @@ def _confirm_age() -> bool:
 
 
 async def main():
-    """Age gate, then build a controller from src/tighc.py's module-level config/profiles and run it."""
-    if not _confirm_age():
-        print("Age not confirmed - exiting.")
-        return
+    """Age gate (skipped if already confirmed), then build a controller from src/tighc.py's module-level config/profiles and run it."""
+    if not load_haptics_config().get("confirmed_age", False):
+        if not _confirm_age():
+            print("Age not confirmed - exiting.")
+            return
+        save_age_confirmation()
     controller = HapticsController(INTIFACE_WS, PROFILES)
     await controller.run()
 

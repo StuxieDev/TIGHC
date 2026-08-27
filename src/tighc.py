@@ -37,6 +37,7 @@ from src.paths import ARTWORK_CACHE_DIR, CONFIGS_DIR, PROFILES_DIR, REPO_ROOT, U
 from src.ranges import DurationRange, FloatRange, VibeRange
 from src.haptics import (
     BACKGROUND_TICK,
+    CONFIRMED_AGE,
     DEFAULT_HAPTICS_CONFIG,
     ENABLE_AUTO_RECONNECT,
     ENABLE_PANIC_KEY,
@@ -53,6 +54,7 @@ from src.haptics import (
     SMOOTHING_FACTOR,
     apply_haptics_config,
     load_haptics_config,
+    save_age_confirmation,
 )
 from src.devices import (
     DEVICES_PATH,
