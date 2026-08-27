@@ -675,7 +675,7 @@ class App:
             variable=self.profile_exact_match_var,
         ).grid(row=2, column=1, sticky="w", padx=4, pady=2)
 
-        ttk.Label(meta, text="Continuous priority order (comma-separated ids):").grid(row=3, column=0, sticky="w", padx=4, pady=2)
+        ttk.Label(meta, text="Binding priority order (comma-separated ids):").grid(row=3, column=0, sticky="w", padx=4, pady=2)
         self.profile_priority_var = tk.StringVar()
         ttk.Entry(meta, textvariable=self.profile_priority_var, width=50).grid(row=3, column=1, sticky="w", padx=4, pady=2)
 
