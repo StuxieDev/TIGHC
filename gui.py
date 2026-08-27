@@ -1913,6 +1913,14 @@ class App:
         website_link.pack(side="left")
         website_link.bind("<Button-1>", lambda _e: webbrowser.open(WEBSITE_URL))
 
+        profiles_row = ttk.Frame(body)
+        profiles_row.pack(anchor="w", pady=(2, 0))
+        ttk.Label(profiles_row, text="Profiles: ").pack(side="left")
+        profiles_url = WEBSITE_URL + "/profiles"
+        profiles_link = ttk.Label(profiles_row, text=profiles_url, foreground=ACCENT_COLOR, cursor="hand2")
+        profiles_link.pack(side="left")
+        profiles_link.bind("<Button-1>", lambda _e: webbrowser.open(profiles_url))
+
         contact = ttk.Frame(body)
         contact.pack(anchor="w", pady=(2, 0))
         ttk.Label(contact, text="Repository: ").pack(side="left")
@@ -1937,6 +1945,10 @@ class App:
         changelog_header.pack(fill="x", pady=(4, 4))
         ttk.Label(changelog_header, text="Changelog", style="Header.TLabel").pack(side="left")
         ttk.Button(changelog_header, text="Reload", command=self._load_changelog).pack(side="right")
+        changelogs_url = WEBSITE_URL + "/changelogs"
+        changelogs_link = ttk.Label(changelog_header, text="View on website", foreground=ACCENT_COLOR, cursor="hand2")
+        changelogs_link.pack(side="right", padx=(0, 8))
+        changelogs_link.bind("<Button-1>", lambda _e: webbrowser.open(changelogs_url))
 
         changelog_frame = ttk.Frame(body)
         changelog_frame.pack(fill="both", expand=True)
