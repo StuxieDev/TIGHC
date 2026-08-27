@@ -42,7 +42,6 @@ from src.tighc import (
     PROJECT_SHORT_NAME,
     REPO_URL,
     WEBSITE_URL,
-    DurationRange,
     HapticsController,
     VibeRange,
     __version__,
@@ -61,12 +60,9 @@ GRID_PICKER_THUMBNAIL_WIDTH = 100  # smaller than ARTWORK_THUMBNAIL_WIDTH - many
 # option a popular game might have (sometimes 100+, each several hundred KB).
 GRID_PICKER_LIMIT = 24
 
-BINDING_COLUMNS = ("id", "keys", "mode", "devices", "vibe", "duration", "enabled")
-BINDING_HEADERS = {
-    "id": "ID", "keys": "Keys", "mode": "Mode", "devices": "Devices",
-    "vibe": "Vibe %", "duration": "Duration (s)", "enabled": "Enabled",
-}
-BINDING_WIDTHS = {"id": 100, "keys": 170, "mode": 90, "devices": 150, "vibe": 90, "duration": 100, "enabled": 70}
+BINDING_COLUMNS = ("id", "keys", "devices", "vibe", "enabled")
+BINDING_HEADERS = {"id": "ID", "keys": "Keys", "devices": "Devices", "vibe": "Vibe %", "enabled": "Enabled"}
+BINDING_WIDTHS = {"id": 100, "keys": 200, "devices": 150, "vibe": 90, "enabled": 70}
 
 # Shared layout constants so spacing stays consistent across every tab
 # instead of a different magic number wherever a widget got added.
@@ -785,13 +781,10 @@ class App:
         return {
             "id": binding["id"],
             "keys": list(binding["keys"]),
-            "mode": binding["mode"],
             "enabled": binding["enabled"],
             "devices": ["all"] if binding["devices"] is None else sorted(binding["devices"]),
             "vibe_low": binding["vibe"].low,
             "vibe_high": binding["vibe"].high,
-            "duration_low": binding["duration"].low if binding["duration"] else None,
-            "duration_high": binding["duration"].high if binding["duration"] else None,
         }
 
     def _load_profile_into_form(self, profile_id):
@@ -855,13 +848,9 @@ class App:
         self.bindings_tree.delete(*self.bindings_tree.get_children())
         for i, b in enumerate(self.current_bindings):
             vibe = f"{b['vibe_low'] * 100:.0f}-{b['vibe_high'] * 100:.0f}"
-            duration = f"{b['duration_low']:.2f}-{b['duration_high']:.2f}" if b["duration_low"] is not None else "-"
             self.bindings_tree.insert(
                 "", "end", iid=str(i),
-                values=(
-                    b["id"], "+".join(b["keys"]), b["mode"], ",".join(b["devices"]),
-                    vibe, duration, "yes" if b["enabled"] else "no",
-                ),
+                values=(b["id"], "+".join(b["keys"]), ",".join(b["devices"]), vibe, "yes" if b["enabled"] else "no"),
             )
 
     def _on_new_profile(self):
@@ -960,10 +949,7 @@ class App:
             "window_titles": window_titles,
             "priority": priority,
             "bindings": [
-                {
-                    "id": b["id"], "keys": b["keys"], "mode": b["mode"],
-                    "enabled": b["enabled"], "devices": b["devices"],
-                }
+                {"id": b["id"], "keys": b["keys"], "enabled": b["enabled"], "devices": b["devices"]}
                 for b in self.current_bindings
             ],
         }
@@ -979,13 +965,7 @@ class App:
         ranges = {"background": {"vibe": [bg_low, bg_high]}}
         for b in self.current_bindings:
             VibeRange(b["vibe_low"], b["vibe_high"])
-            entry = {"vibe": [b["vibe_low"], b["vibe_high"]]}
-            if b["mode"] == "pulse":
-                if b["duration_low"] is None or b["duration_high"] is None:
-                    raise ValueError(f"pulse binding '{b['id']}' is missing duration values")
-                DurationRange(b["duration_low"], b["duration_high"])
-                entry["duration"] = [b["duration_low"], b["duration_high"]]
-            ranges[b["id"]] = entry
+            ranges[b["id"]] = {"vibe": [b["vibe_low"], b["vibe_high"]]}
         return keybinds, ranges
 
     def _on_save_profile(self):
@@ -1305,40 +1285,17 @@ class App:
 
         id_var = tk.StringVar(value=existing["id"] if existing else "")
         keys_var = tk.StringVar(value=",".join(existing["keys"]) if existing else "")
-        mode_var = tk.StringVar(value=existing["mode"] if existing else "pulse")
         devices_var = tk.StringVar(value=",".join(existing["devices"]) if existing else "all")
         vibe_low_var = tk.StringVar(value=f"{existing['vibe_low'] * 100:.0f}" if existing else "30")
         vibe_high_var = tk.StringVar(value=f"{existing['vibe_high'] * 100:.0f}" if existing else "60")
-        has_duration = bool(existing and existing["duration_low"] is not None)
-        duration_low_var = tk.StringVar(value=str(existing["duration_low"]) if has_duration else "0.15")
-        duration_high_var = tk.StringVar(value=str(existing["duration_high"]) if has_duration else "0.25")
         enabled_var = tk.BooleanVar(value=existing["enabled"] if existing else True)
 
         row_entry(0, "Binding id:", id_var)
         row_entry(1, "Keys (comma-separated):", keys_var)
-        ttk.Label(dialog, text="Mode:").grid(row=2, column=0, sticky="w", padx=6, pady=3)
-        ttk.Combobox(dialog, textvariable=mode_var, values=["continuous", "pulse"], state="readonly", width=29).grid(
-            row=2, column=1, sticky="w", padx=6, pady=3
-        )
-        row_entry(3, "Devices (nicknames or 'all'):", devices_var)
-        row_entry(4, "Vibe % low (0-100):", vibe_low_var, width=10)
-        row_entry(5, "Vibe % high (0-100):", vibe_high_var, width=10)
-        ttk.Label(dialog, text="Duration sec low (pulse only):").grid(row=6, column=0, sticky="w", padx=6, pady=3)
-        dur_low_entry = ttk.Entry(dialog, textvariable=duration_low_var, width=10)
-        dur_low_entry.grid(row=6, column=1, sticky="w", padx=6, pady=3)
-        ttk.Label(dialog, text="Duration sec high (pulse only):").grid(row=7, column=0, sticky="w", padx=6, pady=3)
-        dur_high_entry = ttk.Entry(dialog, textvariable=duration_high_var, width=10)
-        dur_high_entry.grid(row=7, column=1, sticky="w", padx=6, pady=3)
-
-        def on_mode_change(*_):
-            state = "normal" if mode_var.get() == "pulse" else "disabled"
-            dur_low_entry.config(state=state)
-            dur_high_entry.config(state=state)
-
-        mode_var.trace_add("write", on_mode_change)
-        on_mode_change()  # set initial state to match whichever mode is pre-selected
-
-        ttk.Checkbutton(dialog, text="Enabled", variable=enabled_var).grid(row=8, column=1, sticky="w", padx=6, pady=3)
+        row_entry(2, "Devices (nicknames or 'all'):", devices_var)
+        row_entry(3, "Vibe % low (0-100):", vibe_low_var, width=10)
+        row_entry(4, "Vibe % high (0-100):", vibe_high_var, width=10)
+        ttk.Checkbutton(dialog, text="Enabled", variable=enabled_var).grid(row=5, column=1, sticky="w", padx=6, pady=3)
 
         result = {}  # populated by on_ok() below; stays empty if the dialog is cancelled
 
@@ -1358,23 +1315,14 @@ class App:
                 keys = [k.strip().lower() for k in keys_var.get().split(",") if k.strip()]
                 if not keys:
                     raise ValueError("at least one key is required")
-                mode = mode_var.get()
                 devices_raw = [d.strip().lower() for d in devices_var.get().split(",") if d.strip()] or ["all"]
                 vibe_low = float(vibe_low_var.get()) / 100.0
                 vibe_high = float(vibe_high_var.get()) / 100.0
                 VibeRange(vibe_low, vibe_high)
-                duration_low = duration_high = None
-                if mode == "pulse":
-                    duration_low = float(duration_low_var.get())
-                    duration_high = float(duration_high_var.get())
-                    DurationRange(duration_low, duration_high)
-                elif "scroll" in keys:
-                    raise ValueError("continuous bindings can't include 'scroll' (it has no held state)")
                 result.update(
                     {
-                        "id": bid, "keys": keys, "mode": mode, "enabled": enabled_var.get(), "devices": devices_raw,
+                        "id": bid, "keys": keys, "enabled": enabled_var.get(), "devices": devices_raw,
                         "vibe_low": vibe_low, "vibe_high": vibe_high,
-                        "duration_low": duration_low, "duration_high": duration_high,
                     }
                 )
                 dialog.destroy()
@@ -1382,7 +1330,7 @@ class App:
                 messagebox.showerror("Binding", str(e), parent=dialog)
 
         btns = ttk.Frame(dialog)
-        btns.grid(row=9, column=0, columnspan=2, pady=8)
+        btns.grid(row=6, column=0, columnspan=2, pady=8)
         ttk.Button(btns, text="OK", command=on_ok).pack(side="left", padx=4)
         ttk.Button(btns, text="Cancel", command=dialog.destroy).pack(side="left", padx=4)
 
@@ -1572,11 +1520,9 @@ class App:
     def _refresh_test_bindings(self):
         """
         Rebuild the "simulate keybinds" panel for whichever profile is
-        selected in test_profile_combo: a "Hold" checkbox per enabled
-        continuous binding, a "Trigger" button per enabled pulse binding.
-        Disabled bindings are skipped - there's nothing to test on a
-        binding that won't fire anyway. Called whenever the profile
-        selector changes, or the profile list itself changes.
+        selected in test_profile_combo: a "Trigger (0.5s)" button per
+        enabled binding. Disabled bindings are skipped.
+        Called whenever the profile selector changes or the profile list changes.
         """
         for child in self.test_bindings_container.winfo_children():
             child.destroy()
@@ -1588,29 +1534,13 @@ class App:
             ttk.Label(self.test_bindings_container, text="(no profile selected)").pack(anchor="w")
             return
 
-        # Continuous bindings need their resolved token set (movement's
-        # {"w","a","s","d"}, etc.) so "Hold" can mark all of them pressed at
-        # once - pull that from profile.continuous rather than re-deriving
-        # it from the raw binding dict.
-        continuous_tokens = {b.id: b.tokens for b in profile.continuous}
-
         for binding in profile.bindings:
             if not binding["enabled"]:
                 continue
             row = ttk.Frame(self.test_bindings_container)
             row.pack(fill="x", pady=2)
-            ttk.Label(row, text=f"{binding['id']} ({binding['mode']})", width=24).pack(side="left")
-
-            if binding["mode"] == "continuous":
-                tokens = continuous_tokens.get(binding["id"], frozenset(binding["keys"]))
-                hold_var = tk.BooleanVar(value=False)
-                ttk.Checkbutton(
-                    row, text="Hold", variable=hold_var,
-                    command=lambda t=tokens, v=hold_var: self._on_toggle_binding_hold(t, v),
-                ).pack(side="left")
-                self._test_binding_widgets[binding["id"]] = (hold_var, tokens)
-            else:
-                ttk.Button(row, text="Trigger", command=lambda b=binding: self._on_trigger_binding(b)).pack(side="left")
+            ttk.Label(row, text=binding["id"], width=24).pack(side="left")
+            ttk.Button(row, text="Trigger (0.5s)", command=lambda b=binding: self._on_trigger_binding(b)).pack(side="left")
 
     def _on_toggle_binding_hold(self, tokens, hold_var):
         """
@@ -1638,8 +1568,7 @@ class App:
         Uses test_pulse(), not pulse(), so this works even with no profile
         pinned/active.
         """
-        duration = binding["duration"].roll() if binding["duration"] else 0.3
-        self.bridge.submit(self.controller.test_pulse(binding["vibe"], duration, binding["devices"]))
+        self.bridge.submit(self.controller.test_pulse(binding["vibe"], 0.5, binding["devices"]))
 
     def _on_toggle_test_pin(self):
         """
@@ -1670,18 +1599,10 @@ class App:
         hold just lets background_loop() (or the idle branch, if nothing's
         active) take back over on its own next tick.
         """
-        # Release every manual channel hold...
         for nickname, widgets in self._test_channel_widgets.items():
             if widgets["hold_var"].get():
                 widgets["hold_var"].set(False)
                 self.bridge.submit(self.controller.clear_test_level(nickname))
-        # ...and release every simulated keybind hold. Setting a BooleanVar
-        # programmatically doesn't fire the Checkbutton's command, so the
-        # pressed_keys cleanup has to happen here explicitly too.
-        for hold_var, tokens in self._test_binding_widgets.values():
-            if hold_var.get():
-                hold_var.set(False)
-                self.controller.input_state.pressed_keys -= set(tokens)
         self._enqueue_log("Test mode: released all manual holds.")
 
     # =============================================================== Settings tab

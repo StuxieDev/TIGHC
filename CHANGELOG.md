@@ -5,6 +5,34 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.6.0]
+
+### Changed
+- **Unified binding model** - the continuous/pulse distinction has been
+  removed. All bindings now work the same way: pressing a key fires the
+  vibration at a rolled intensity from the binding's range; holding the key
+  sustains it; releasing stops it immediately. `background_loop` is now
+  responsible only for the idle background level and profile switching — all
+  binding-driven vibration is event-driven.
+- **Scroll wheel fires a short fixed burst** (0.15 s) since it has no release
+  event; all other bindings hold until release.
+- **Duration field removed** from the binding editor and saved profile files.
+  The `duration` field in existing `ranges.json` files is read and displayed
+  in the startup banner for backward compatibility but is no longer used by
+  the engine.
+- **Mode field removed** from the binding editor. Existing `keybinds.json`
+  files with `"mode": "continuous"` or `"mode": "pulse"` continue to load
+  correctly (the field is ignored).
+- **Bindings tree** no longer has Mode or Duration columns.
+- **Test tab** binding panel shows "Trigger (0.5s)" for all bindings
+  (previously: "Hold" for continuous, "Trigger" for pulse).
+
+### Breaking changes
+- `Profile.continuous` and `Profile.pulse_bindings` removed; replaced by
+  `Profile.bindings_by_key` (key token → `Binding`).
+- `ContinuousBinding`, `PulseBinding` classes removed from `src/profiles.py`.
+- Profiles saved by the GUI no longer include `mode` or `duration` fields.
+
 ## [3.5.0]
 
 ### Added

@@ -34,7 +34,7 @@ this facade.
 from src.metadata import AUTHOR_NAME, AUTHOR_URL, PROJECT_NAME, PROJECT_SHORT_NAME, REPO_URL, WEBSITE_URL
 from src.version import __version__, get_version, get_version_tuple
 from src.paths import ARTWORK_CACHE_DIR, CONFIGS_DIR, PROFILES_DIR, REPO_ROOT
-from src.ranges import DurationRange, FloatRange, PulseSpec, VibeRange
+from src.ranges import DurationRange, FloatRange, VibeRange
 from src.haptics_config import (
     BACKGROUND_TICK,
     DEFAULT_HAPTICS_CONFIG,
@@ -67,9 +67,8 @@ from src.profiles import (
     DEFAULT_MINECRAFT_KEYBINDS,
     DEFAULT_MINECRAFT_RANGES,
     PROFILES,
-    ContinuousBinding,
+    Binding,
     Profile,
-    PulseBinding,
     _load_profile,
     _parse_devices_field,
     _seed_default_profile,

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.paths import PROFILES_DIR
-from src.ranges import DurationRange, PulseSpec, VibeRange
+from src.ranges import DurationRange, VibeRange
 
 # Seeded to profiles/minecraft/ the first time the script runs (i.e. when
 # profiles/ doesn't exist yet), reproducing the behavior this script used to
@@ -63,21 +63,11 @@ DEFAULT_MINECRAFT_RANGES = {
 
 
 @dataclass(frozen=True)
-class ContinuousBinding:
-    """A held-input binding: while any of `tokens` is pressed, `vibe` competes for output on `devices`."""
+class Binding:
+    """A keybinding: pressing any of its keys fires the vibration; holding sustains it; releasing stops it."""
 
-    tokens: frozenset
+    id: str
     vibe: VibeRange
-    id: str
-    devices: Optional[frozenset]  # None means "all channels"
-
-
-@dataclass(frozen=True)
-class PulseBinding:
-    """A one-shot binding fired on press, scoped to `devices`."""
-
-    spec: PulseSpec
-    id: str
     devices: Optional[frozenset]  # None means "all channels"
 
 
@@ -88,11 +78,10 @@ class Profile:
     id: str
     name: str
     window_titles: list  # strings matched case-sensitively against the foreground window title
-    continuous: list  # ordered [ContinuousBinding, ...], first pressed+targeted match wins
-    pulse_bindings: dict  # key/button token -> PulseBinding
+    bindings_by_key: dict  # key/button token -> Binding, all enabled bindings merged for event dispatch
     background: VibeRange
     bindings: list  # raw parsed bindings, in file order, for the startup banner
-    priority: list  # raw priority list from keybinds.json (all binding ids, any mode); engine uses it only for continuous ordering
+    priority: list  # raw id order from keybinds.json, used by the GUI's priority field
     # When True, window_titles entries must equal the full window title exactly
     # (case-sensitive). When False (default), each entry is a substring - the
     # title just needs to contain it. Use exact=True when two games share a
@@ -119,25 +108,6 @@ class Profile:
         if self.window_title_exact:
             return window_title in self.window_titles
         return any(t in window_title for t in self.window_titles)
-
-    def range_for(self, channel_nickname: str, pressed_keys: set) -> VibeRange:
-        """
-        Resolve the intensity range a specific channel should currently be
-        driven at, given which keys/buttons are held.
-
-        Walks `continuous` in priority order (the order _load_profile()
-        already sorted them into); the first binding that both (a) targets
-        this channel (its `devices` is None/"all", or contains this
-        nickname) and (b) has at least one of its keys currently in
-        `pressed_keys` wins. If nothing matches - nothing relevant is held -
-        the profile's idle `background` range is returned instead.
-        """
-        for binding in self.continuous:
-            if binding.devices is not None and channel_nickname not in binding.devices:
-                continue
-            if pressed_keys & binding.tokens:
-                return binding.vibe
-        return self.background
 
 
 def _seed_default_profile():
@@ -196,46 +166,36 @@ def _load_profile(profile_dir: Path) -> Profile:
     priority = keybinds.get("priority", [])
 
     seen_ids = set()
-    parsed_bindings = []  # every binding, in file order, disabled ones included - used only for the banner/GUI display
-    continuous_entries = {}  # id -> ContinuousBinding, enabled continuous bindings only
-    pulse_bindings = {}  # key/button token -> PulseBinding, enabled pulse bindings only (a token can map to only one)
+    parsed_bindings = []  # every binding, in file order, disabled ones included - used for the banner/GUI display
+    bindings_by_key = {}  # key/button token -> Binding, all enabled bindings for event-driven dispatch
 
-    # Single pass over every declared binding: validate its shape, look up
-    # its numbers in ranges.json, and - if it's enabled - file it into
-    # whichever runtime structure (continuous_entries or pulse_bindings)
-    # HapticsController actually consults during play.
+    # Single pass: validate shape, look up ranges.json, build the runtime
+    # lookup dict. mode/duration are read from the JSON and stored for
+    # display (banner, GUI) but are not used by the engine - all bindings
+    # now fire on press and stop on release.
     for binding in keybinds.get("bindings", []):
         bid = binding["id"]
         if bid in seen_ids:
             raise ValueError(f"duplicate binding id '{bid}'")
         seen_ids.add(bid)
 
-        mode = binding.get("mode")
-        if mode not in ("continuous", "pulse"):
-            raise ValueError(f"binding '{bid}' has invalid mode {mode!r} (must be 'continuous' or 'pulse')")
+        mode = binding.get("mode")  # kept for backward compat / display only
 
         keys = [k.lower() for k in binding.get("keys", [])]
         if not keys:
             raise ValueError(f"binding '{bid}' has no keys")
-        if mode == "continuous" and "scroll" in keys:
-            raise ValueError(f"binding '{bid}' is continuous but includes 'scroll', which has no held state")
 
         enabled = binding.get("enabled", True)
         target_devices = _parse_devices_field(binding)
 
-        # The binding's own vibe/duration numbers live in ranges.json, keyed
-        # by the same id - keeping "what triggers it" (keybinds.json)
-        # separate from "how strong/long" (ranges.json).
         range_section = ranges.get(bid)
         if range_section is None:
             raise ValueError(f"binding '{bid}' has no matching entry in ranges.json")
         vibe = VibeRange(*range_section["vibe"])
 
-        duration = None
-        if mode == "pulse":
-            if "duration" not in range_section:
-                raise ValueError(f"pulse binding '{bid}' needs a 'duration' range in ranges.json")
-            duration = DurationRange(*range_section["duration"])
+        # duration is read and preserved for display (banner / legacy profiles)
+        # but the engine no longer uses it - every binding holds until release.
+        duration = DurationRange(*range_section["duration"]) if "duration" in range_section else None
 
         parsed_bindings.append(
             {
@@ -250,41 +210,22 @@ def _load_profile(profile_dir: Path) -> Profile:
         )
 
         if not enabled:
-            continue  # still recorded in parsed_bindings above (for display), just excluded from runtime lookups
-        if mode == "continuous":
-            continuous_entries[bid] = ContinuousBinding(
-                tokens=frozenset(keys), vibe=vibe, id=bid, devices=target_devices
-            )
-        else:
-            # Every key/button this pulse binding lists triggers the same
-            # PulseSpec+devices - e.g. switch_item's "1".."9" and "scroll"
-            # all share one entry, keyed separately per token for fast
-            # lookup in on_key_press()/on_mouse_scroll().
-            spec = PulseSpec(vibe, duration)
-            pulse_binding = PulseBinding(spec=spec, id=bid, devices=target_devices)
-            for k in keys:
-                pulse_bindings[k] = pulse_binding
+            continue
+        b = Binding(id=bid, vibe=vibe, devices=target_devices)
+        for k in keys:
+            bindings_by_key[k] = b
 
     background_section = ranges.get("background")
     if background_section is None or "vibe" not in background_section:
         raise ValueError("ranges.json needs a 'background' entry with a 'vibe' range")
     background = VibeRange(*background_section["vibe"])
 
-    # Order continuous bindings by `priority` first (only ids that are
-    # actually continuous+enabled matter here), then append anything left
-    # over in whatever order it was declared - see Profile.range_for() for
-    # how this ordering is used (first match wins).
-    ordered_ids = [i for i in priority if i in continuous_entries]
-    ordered_ids += [i for i in continuous_entries if i not in ordered_ids]
-    continuous = [continuous_entries[i] for i in ordered_ids]
-
     return Profile(
         id=profile_dir.name,
         name=name,
         window_titles=window_titles,
         window_title_exact=window_title_exact,
-        continuous=continuous,
-        pulse_bindings=pulse_bindings,
+        bindings_by_key=bindings_by_key,
         background=background,
         bindings=parsed_bindings,
         priority=priority,

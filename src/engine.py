@@ -263,26 +263,22 @@ class HapticsController:
             self._consecutive_send_failures = 0 if sent else self._consecutive_send_failures + 1
         channel.last_level = level
 
-    async def _do_pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset], cancel_event: Optional[asyncio.Event] = None):
+    async def _do_pulse(self, vibe_range: VibeRange, duration: Optional[float], target: Optional[frozenset], cancel_event: Optional[asyncio.Event] = None):
         """
-        Shared implementation behind pulse() and test_pulse() - see those
-        for the difference (whether an active profile is required).
+        Shared implementation behind pulse() and test_pulse().
 
-        `target` is a binding's resolved devices field (None = all
-        channels, else a frozenset of nicknames). One random level is
-        rolled from `vibe_range` and sent to every currently-free channel in
-        the target set simultaneously; channels already mid-pulse or still
-        in another pulse's cooldown window are skipped for this trigger
-        rather than queued or made to wait.
+        `target` is a binding's resolved devices field (None = all channels,
+        else a frozenset of nicknames). One random level is rolled and sent
+        to every currently-free channel simultaneously; channels already
+        busy are skipped.
 
-        When `cancel_event` is supplied (real input pulses, not test pulses),
-        releasing the key before `duration` elapses sets the event and cuts
-        the pulse short. The ignore_until cooldown is cleared on early cancel
-        so the channel is immediately available for the next press.
+        `duration=None` means "hold until cancel_event fires" (real input
+        path). A float duration is used by test_pulse() for timed test
+        triggers. When cancel_event is supplied, releasing the key sets it
+        and ends the pulse immediately; the cooldown is cleared so the next
+        press fires without delay.
         """
         now = time.time()
-        # Only one pulse "slot" per channel at a time - a channel already
-        # mid-pulse (or in cooldown) is simply skipped for this trigger.
         targets = [c for c in self._channels_for(target) if now >= c.ignore_until and not c.pulse_active]
         if not targets:
             return
@@ -290,45 +286,42 @@ class HapticsController:
         level = self.roll(vibe_range)
         for channel in targets:
             channel.pulse_active = True
-            channel.ignore_until = now + duration
+            if duration is not None:
+                channel.ignore_until = now + duration
 
         await asyncio.gather(*(self._set_channel_level(c, level) for c in targets))
 
         if cancel_event is not None:
-            try:
-                await asyncio.wait_for(cancel_event.wait(), timeout=duration)
-                # Key released before full duration - clear cooldown so next press fires immediately
+            if duration is not None:
+                try:
+                    await asyncio.wait_for(cancel_event.wait(), timeout=duration)
+                    for channel in targets:
+                        channel.ignore_until = 0.0
+                except asyncio.TimeoutError:
+                    pass
+            else:
+                # Hold indefinitely until the key is released
+                await cancel_event.wait()
                 for channel in targets:
                     channel.ignore_until = 0.0
-            except asyncio.TimeoutError:
-                pass  # full duration elapsed normally
-        else:
+        elif duration is not None:
             await asyncio.sleep(duration)
 
         for channel in targets:
             channel.pulse_active = False
 
-        engine_running = self._background_task is not None and not self._background_task.done()
-        if not engine_running:
-            # background_loop() isn't running to pick up the reset on its
-            # next tick - e.g. firing a test pulse from the GUI's Test tab
-            # before clicking Start - so nothing else would ever turn this
-            # channel back off, leaving it stuck at the pulsed level
-            # forever. Explicitly reset it (to a manual test hold if one's
-            # active, else off). When the engine IS running, skip this and
-            # let background_loop's own next tick handle it with its usual
-            # smoothing instead, so a pulse during real gameplay transitions
-            # straight to whatever continuous binding still applies rather
-            # than dipping to zero first.
-            await asyncio.gather(
-                *(self._set_channel_level(c, c.manual_override if c.manual_override is not None else 0.0) for c in targets)
-            )
+        # Explicitly send 0 immediately so the device stops without waiting
+        # for background_loop's next tick (up to BACKGROUND_TICK away).
+        # background_loop will apply the idle/background level on its own next pass.
+        await asyncio.gather(
+            *(self._set_channel_level(c, c.manual_override if c.manual_override is not None else 0.0) for c in targets)
+        )
 
-    async def pulse(self, vibe_range: VibeRange, duration: float, target: Optional[frozenset], token: Optional[str] = None):
-        """Short randomized vibration triggered by real input - a no-op while no profile is active.
+    async def pulse(self, vibe_range: VibeRange, duration: Optional[float], target: Optional[frozenset], token: Optional[str] = None):
+        """Vibration triggered by real input - a no-op while no profile is active.
 
-        When `token` is supplied (the key/button string that triggered this pulse), a cancel
-        event is registered so releasing that key before the duration elapses cuts it short.
+        When `token` is supplied the pulse holds until the key/button is released (duration=None)
+        or until the optional max duration elapses, whichever comes first.
         """
         if self.active_profile is None:
             return
@@ -383,23 +376,16 @@ class HapticsController:
         while self.running:
             self._update_active_profile()
 
-            if self.active_profile is None:
-                # Nothing matches the focused window (and no test profile is
-                # pinned) - zero everything except channels a pulse or a
-                # manual test hold is currently in charge of.
-                for channel in self.channels.values():
-                    if not channel.pulse_active and channel.manual_override is None:
-                        await self._set_channel_level(channel, 0.0)
-                await asyncio.sleep(haptics_config.BACKGROUND_TICK)
-                continue
-
             now = time.time()
             for channel in self.channels.values():
                 if channel.pulse_active or now < channel.ignore_until or channel.manual_override is not None:
                     continue
-                target_vibe = self.active_profile.range_for(channel.nickname, self.input_state.pressed_keys)
-                level = self._smooth(channel, self.roll(target_vibe))
-                await self._set_channel_level(channel, level)
+                # No binding is currently holding this channel - apply the idle background level.
+                if self.active_profile is None:
+                    await self._set_channel_level(channel, 0.0)
+                else:
+                    level = self._smooth(channel, self.roll(self.active_profile.background))
+                    await self._set_channel_level(channel, level)
 
             if (
                 haptics_config.ENABLE_AUTO_RECONNECT
@@ -439,19 +425,12 @@ class HapticsController:
             self.schedule(self.panic())
             return
 
-        # Pulse-mode bindings fire on press; continuous-mode bindings are
-        # picked up by background_loop() via pressed_keys instead.
-        if self.active_profile is None:
+        if self.active_profile is None or was_held:
             return
-        pulse_binding = self.active_profile.pulse_bindings.get(k)
-        if pulse_binding:
-            self.log(f"[Pulse] {pulse_binding.id}: triggered ({k})")
-            self.schedule(self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices, token=k))
-        elif not was_held:
-            for binding in self.active_profile.continuous:
-                if k in binding.tokens:
-                    self.log(f"[Continuous] {binding.id}: activated ({k})")
-                    break
+        binding = self.active_profile.bindings_by_key.get(k)
+        if binding:
+            self.log(f"[{binding.id}]: activated ({k})")
+            self.schedule(self.pulse(binding.vibe, None, binding.devices, token=k))
 
     def on_key_release(self, key):
         """pynput callback: stop tracking the key as held; cancels any in-progress pulse for that key."""
@@ -463,8 +442,7 @@ class HapticsController:
         cancel_event = self._pulse_cancel_events.get(k)
         if cancel_event is not None and self.loop:
             self.loop.call_soon_threadsafe(cancel_event.set)
-            # binding name not easily available here; key token is sufficient
-            self.log(f"[Pulse] {k}: cancelled (key released)")
+            self.log(f"[{k}]: released")
 
     def on_mouse_click(self, _x, _y, button, pressed):
         """
@@ -486,38 +464,29 @@ class HapticsController:
 
         self.input_state.set_held(token, pressed)
         if pressed and self.active_profile is not None:
-            pulse_binding = self.active_profile.pulse_bindings.get(token)
-            if pulse_binding:
-                self.log(f"[Pulse] {pulse_binding.id}: triggered ({token})")
-                self.schedule(
-                    self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices, token=token)
-                )
-            else:
-                for binding in self.active_profile.continuous:
-                    if token in binding.tokens:
-                        self.log(f"[Continuous] {binding.id}: activated ({token})")
-                        break
+            binding = self.active_profile.bindings_by_key.get(token)
+            if binding:
+                self.log(f"[{binding.id}]: activated ({token})")
+                self.schedule(self.pulse(binding.vibe, None, binding.devices, token=token))
         elif not pressed:
             cancel_event = self._pulse_cancel_events.get(token)
             if cancel_event is not None and self.loop:
                 self.loop.call_soon_threadsafe(cancel_event.set)
-                self.log(f"[Pulse] {token}: cancelled (button released)")
+                self.log(f"[{token}]: released")
 
     def on_mouse_scroll(self, _x, _y, _dx, _dy):
         """
-        pynput callback for the scroll wheel. Scrolling has no "held" state
-        (it's a series of discrete tick events), so it can only ever be
-        bound as a pulse - see the "scroll" validation in _load_profile().
+        pynput callback for the scroll wheel. Each scroll tick is a discrete
+        event with no release, so scroll bindings fire a short fixed-duration
+        burst (0.15s) rather than holding until release.
         `_x`/`_y`/`_dx`/`_dy` (position and scroll delta) are unused but
         required by pynput's callback signature.
         """
         if self.active_profile is None:
             return
-        pulse_binding = self.active_profile.pulse_bindings.get("scroll")
-        if pulse_binding:
-            self.schedule(
-                self.pulse(pulse_binding.spec.vibe, pulse_binding.spec.roll_duration(), pulse_binding.devices)
-            )
+        binding = self.active_profile.bindings_by_key.get("scroll")
+        if binding:
+            self.schedule(self.pulse(binding.vibe, 0.15, binding.devices))
 
     # ----------------------------------------------------------------- run
     @staticmethod

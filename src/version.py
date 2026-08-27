@@ -7,7 +7,7 @@ backward-compatible feature additions, and PATCH marks fixes. Bump
 __version__ here and add a matching entry to CHANGELOG.md together.
 """
 
-__version__ = "3.5.0"
+__version__ = "3.6.0"
 
 
 def get_version() -> str:
