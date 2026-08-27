@@ -5,6 +5,16 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.8]
+
+### Fixed
+- **Panic key logged** — pressing the panic key now logs which key was pressed
+  and how long haptics will be suppressed (e.g. `PANIC key (F12) pressed -
+  haptics forced off for 1.0s.`).
+- **Panic timer resets on stop** — stopping the engine now clears the panic
+  timer, so a panic pressed just before stopping can't carry over and suppress
+  output when the engine is next started.
+
 ## [3.9.7]
 
 ### Added

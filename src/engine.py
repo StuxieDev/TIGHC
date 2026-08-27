@@ -365,7 +365,7 @@ class HapticsController:
         """Immediately force every channel's output off, for a short hold."""
         self._panic_until = time.time() + haptics.PANIC_HOLD_DURATION
         await asyncio.gather(*(self._set_channel_level(c, 0.0) for c in self.channels.values()))
-        self.log("PANIC - haptics forced off.")
+        self.log(f"PANIC key ({haptics.PANIC_KEY.upper()}) pressed - haptics forced off for {haptics.PANIC_HOLD_DURATION:.1f}s.")
 
     async def background_loop(self):
         """
@@ -584,6 +584,7 @@ class HapticsController:
     async def stop_engine(self):
         """Stop input listeners and the background loop, forcing every channel off. Connection stays open."""
         self.running = False
+        self._panic_until = 0.0
         if self._background_task:
             self._background_task.cancel()
             try:
