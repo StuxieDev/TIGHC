@@ -6,7 +6,6 @@
 > require you to confirm this before they'll start.
 
 **Version 3.9.3** — see [CHANGELOG.md](CHANGELOG.md) for release history.
-(Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 ![TIGHC](assets/logo.png)
 
