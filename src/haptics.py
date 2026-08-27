@@ -34,7 +34,7 @@ DEFAULT_HAPTICS_CONFIG = {
     "intiface_ws": "ws://127.0.0.1:12345",
     "master": {"enabled": False, "range": [0.20, 1.00]},
     "smoothing": {"enabled": True, "factor": 0.35},
-    "panic_key": {"enabled": True, "key": "f12", "hold_duration": 1.0},
+    "panic_key": {"enabled": True, "key": "f12", "hold_duration": 1.0, "panic_mode": "hold"},
     "auto_reconnect": {"enabled": True, "cooldown": 5.0, "failure_threshold": 10},
     "timing": {"background_tick": 0.18},
     "confirmed_age": False,
@@ -97,6 +97,7 @@ SMOOTHING_FACTOR = HAPTICS_CONFIG["smoothing"]["factor"]
 ENABLE_PANIC_KEY = HAPTICS_CONFIG["panic_key"]["enabled"]
 PANIC_KEY = HAPTICS_CONFIG["panic_key"]["key"].strip().lower()
 PANIC_HOLD_DURATION = HAPTICS_CONFIG["panic_key"]["hold_duration"]
+PANIC_MODE = HAPTICS_CONFIG["panic_key"].get("panic_mode", "hold")
 
 ENABLE_AUTO_RECONNECT = HAPTICS_CONFIG["auto_reconnect"]["enabled"]
 RECONNECT_COOLDOWN = HAPTICS_CONFIG["auto_reconnect"]["cooldown"]
@@ -141,7 +142,7 @@ def apply_haptics_config(new_config: dict):
     """
     global HAPTICS_CONFIG, INTIFACE_WS, MASTER_RANDOM_ENABLED, MASTER_VIBE_RANGE
     global ENABLE_SMOOTHING, SMOOTHING_FACTOR
-    global ENABLE_PANIC_KEY, PANIC_KEY, PANIC_HOLD_DURATION
+    global ENABLE_PANIC_KEY, PANIC_KEY, PANIC_HOLD_DURATION, PANIC_MODE
     global ENABLE_AUTO_RECONNECT, RECONNECT_COOLDOWN, FAILURE_RECONNECT_THRESHOLD
     global BACKGROUND_TICK, CONFIRMED_AGE
 
@@ -162,6 +163,7 @@ def apply_haptics_config(new_config: dict):
     ENABLE_PANIC_KEY = new_config["panic_key"]["enabled"]
     PANIC_KEY = new_config["panic_key"]["key"].strip().lower()
     PANIC_HOLD_DURATION = new_config["panic_key"]["hold_duration"]
+    PANIC_MODE = new_config["panic_key"].get("panic_mode", "hold")
     ENABLE_AUTO_RECONNECT = new_config["auto_reconnect"]["enabled"]
     RECONNECT_COOLDOWN = new_config["auto_reconnect"]["cooldown"]
     FAILURE_RECONNECT_THRESHOLD = new_config["auto_reconnect"]["failure_threshold"]

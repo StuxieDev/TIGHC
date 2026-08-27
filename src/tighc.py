@@ -50,6 +50,7 @@ from src.haptics import (
     MASTER_VIBE_RANGE,
     PANIC_HOLD_DURATION,
     PANIC_KEY,
+    PANIC_MODE,
     RECONNECT_COOLDOWN,
     SMOOTHING_FACTOR,
     apply_haptics_config,

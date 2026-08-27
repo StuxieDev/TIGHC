@@ -5,6 +5,17 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.9]
+
+### Added
+- **Panic key action setting** — new "Panic key action" option in Settings with
+  two modes:
+  - **Suppress for duration** (default) — existing behaviour: forces haptics off
+    for the configured hold duration, then resumes automatically.
+  - **Stop engine completely** — pressing the panic key stops the engine entirely
+    (same as clicking Stop), requiring a manual Start to resume. The Run tab
+    updates automatically when the engine stops this way.
+
 ## [3.9.8]
 
 ### Fixed

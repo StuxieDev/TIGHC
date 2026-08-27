@@ -362,10 +362,14 @@ class HapticsController:
         channel.manual_override = None
 
     async def panic(self):
-        """Immediately force every channel's output off, for a short hold."""
-        self._panic_until = time.time() + haptics.PANIC_HOLD_DURATION
-        await asyncio.gather(*(self._set_channel_level(c, 0.0) for c in self.channels.values()))
-        self.log(f"PANIC key ({haptics.PANIC_KEY.upper()}) pressed - haptics forced off for {haptics.PANIC_HOLD_DURATION:.1f}s.")
+        """Force haptics off via the panic key: either suppress for a timed hold or stop the engine entirely."""
+        if haptics.PANIC_MODE == "stop":
+            self.log(f"PANIC key ({haptics.PANIC_KEY.upper()}) pressed - stopping engine.")
+            await self.stop_engine()
+        else:
+            self._panic_until = time.time() + haptics.PANIC_HOLD_DURATION
+            await asyncio.gather(*(self._set_channel_level(c, 0.0) for c in self.channels.values()))
+            self.log(f"PANIC key ({haptics.PANIC_KEY.upper()}) pressed - haptics forced off for {haptics.PANIC_HOLD_DURATION:.1f}s.")
 
     async def background_loop(self):
         """

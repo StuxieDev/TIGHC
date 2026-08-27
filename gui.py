@@ -184,6 +184,7 @@ class App:
 
         self.current_profile_id = None
         self.current_bindings = []  # editable plain-dict copies of the loaded profile's bindings
+        self._engine_running = False  # tracks whether the engine is currently running; used to detect panic-stop
         self._test_channel_widgets = {}  # nickname -> {"level_var", "hold_var"}, rebuilt by _refresh_test_channels
         self._test_binding_widgets = {}  # binding id -> (hold_var, tokens), continuous bindings only
         self._scrollable_canvases = []  # plain Tk Canvases from _build_scrollable_body(), re-themed alongside log_text/changelog_text
@@ -1865,6 +1866,13 @@ class App:
         row += 1
         add("Panic key:", "panic_key", cfg["panic_key"]["key"])
         add("Panic hold duration (sec):", "panic_hold", cfg["panic_key"]["hold_duration"])
+        ttk.Label(body, text="Panic key action:").grid(row=row, column=0, sticky="w", **pad)
+        self.panic_mode_var = tk.StringVar(value=cfg["panic_key"].get("panic_mode", "hold"))
+        mode_frame = ttk.Frame(body)
+        mode_frame.grid(row=row, column=1, sticky="w", **pad)
+        ttk.Radiobutton(mode_frame, text="Suppress for duration", variable=self.panic_mode_var, value="hold").pack(side="left")
+        ttk.Radiobutton(mode_frame, text="Stop engine completely", variable=self.panic_mode_var, value="stop").pack(side="left", padx=(12, 0))
+        row += 1
 
         self.reconnect_enabled_var = tk.BooleanVar(value=cfg["auto_reconnect"]["enabled"])
         ttk.Checkbutton(body, text="Auto-reconnect enabled", variable=self.reconnect_enabled_var).grid(
@@ -2003,6 +2011,7 @@ class App:
                     "enabled": self.panic_enabled_var.get(),
                     "key": self.cfg_vars["panic_key"].get().strip(),
                     "hold_duration": float(self.cfg_vars["panic_hold"].get()),
+                    "panic_mode": self.panic_mode_var.get(),
                 },
                 "auto_reconnect": {
                     "enabled": self.reconnect_enabled_var.get(),
@@ -2108,6 +2117,7 @@ class App:
         self.connect_btn.config(state="disabled" if is_connected else "normal")
         self.disconnect_btn.config(state="normal" if is_connected else "disabled")
         if ok:
+            self._engine_running = True
             self.stop_btn.config(state="normal")
             self.status_var.set("Running")
         else:
@@ -2125,6 +2135,7 @@ class App:
             fut.result()
         except Exception as e:
             self._enqueue_log(f"Stop error: {e}")
+        self._engine_running = False
         self.start_btn.config(state="normal")
         self.status_var.set("Stopped")
 
@@ -2345,6 +2356,14 @@ class App:
         (floats, a profile reference) under the GIL, unlike posting a
         mutating command the other direction.
         """
+        # Detect if the engine stopped itself (e.g. panic key in "stop" mode)
+        # and update button/status state without requiring the user to click Stop.
+        if self._engine_running and not self.controller.running:
+            self._engine_running = False
+            self.start_btn.config(state="normal")
+            self.stop_btn.config(state="disabled")
+            self.status_var.set("Stopped")
+
         is_connected = bool(self.controller.client)
         if self.controller.channels:
             active = self.controller.active_profile.name if self.controller.active_profile else "(none - idle)"
