@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.5]
+
+### Fixed
+- **Config backfill** — if a user's `haptics.json` is missing any keys (e.g.
+  after an update adds a new setting), `load_haptics_config()` now writes the
+  merged result back to disk so the file stays complete. Previously missing
+  keys were only filled in memory.
+
 ## [3.9.4]
 
 ### Changed

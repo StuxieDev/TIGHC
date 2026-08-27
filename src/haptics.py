@@ -75,7 +75,13 @@ def load_haptics_config() -> dict:
         print(f"Could not read {HAPTICS_CONFIG_PATH} ({e}); using built-in defaults.")
         return DEFAULT_HAPTICS_CONFIG
 
-    return _deep_merge(DEFAULT_HAPTICS_CONFIG, user_config)
+    merged = _deep_merge(DEFAULT_HAPTICS_CONFIG, user_config)
+    if merged != user_config:
+        try:
+            HAPTICS_CONFIG_PATH.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+    return merged
 
 
 HAPTICS_CONFIG = load_haptics_config()

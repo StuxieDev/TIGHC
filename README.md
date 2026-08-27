@@ -5,7 +5,7 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.9.4** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.9.5** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ![TIGHC](assets/logo.png)
 
