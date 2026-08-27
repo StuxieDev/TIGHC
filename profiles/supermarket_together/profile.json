@@ -1,0 +1,99 @@
+{
+  "name": "Supermarket Together",
+  "window_titles": [
+    "supermarket together"
+  ],
+  "priority": [
+    "sprint",
+    "movement"
+  ],
+  "bindings": [
+    {
+      "id": "movement",
+      "keys": [
+        "w",
+        "a",
+        "s",
+        "d"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.35,
+        0.55
+      ]
+    },
+    {
+      "id": "sprint",
+      "keys": [
+        "shift"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.45,
+        0.65
+      ]
+    },
+    {
+      "id": "interact",
+      "keys": [
+        "mouse_left"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.3,
+        0.45
+      ]
+    },
+    {
+      "id": "place",
+      "keys": [
+        "mouse_right"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.25,
+        0.4
+      ]
+    },
+    {
+      "id": "open_box",
+      "keys": [
+        "e"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.2,
+        0.3
+      ]
+    },
+    {
+      "id": "deliveries_menu",
+      "keys": [
+        "q"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    }
+  ]
+}

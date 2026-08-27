@@ -1,0 +1,181 @@
+{
+  "name": "Minecraft",
+  "window_titles": [
+    "minecraft"
+  ],
+  "priority": [
+    "attack",
+    "use",
+    "sneak",
+    "sprint",
+    "movement"
+  ],
+  "bindings": [
+    {
+      "id": "movement",
+      "keys": [
+        "w",
+        "a",
+        "s",
+        "d"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.4,
+        0.65
+      ]
+    },
+    {
+      "id": "sprint",
+      "keys": [
+        "ctrl"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.5,
+        0.7
+      ]
+    },
+    {
+      "id": "sneak",
+      "keys": [
+        "shift"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.3,
+        0.5
+      ]
+    },
+    {
+      "id": "attack",
+      "keys": [
+        "mouse_left"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.75,
+        1.0
+      ]
+    },
+    {
+      "id": "use",
+      "keys": [
+        "mouse_right"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.55,
+        0.8
+      ]
+    },
+    {
+      "id": "jump",
+      "keys": [
+        "space"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.7,
+        0.95
+      ]
+    },
+    {
+      "id": "pick_block",
+      "keys": [
+        "mouse_middle"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.3,
+        0.45
+      ]
+    },
+    {
+      "id": "drop",
+      "keys": [
+        "q"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.25,
+        0.4
+      ]
+    },
+    {
+      "id": "offhand",
+      "keys": [
+        "f"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.25,
+        0.4
+      ]
+    },
+    {
+      "id": "inventory",
+      "keys": [
+        "e"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    },
+    {
+      "id": "switch_item",
+      "keys": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "scroll"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.3
+      ]
+    }
+  ]
+}

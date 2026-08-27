@@ -1,0 +1,99 @@
+{
+  "name": "Megastore Simulator",
+  "window_titles": [
+    "megastore simulator"
+  ],
+  "priority": [
+    "sprint",
+    "movement"
+  ],
+  "bindings": [
+    {
+      "id": "movement",
+      "keys": [
+        "w",
+        "a",
+        "s",
+        "d"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.35,
+        0.55
+      ]
+    },
+    {
+      "id": "sprint",
+      "keys": [
+        "shift"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.45,
+        0.65
+      ]
+    },
+    {
+      "id": "jump",
+      "keys": [
+        "space"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.55,
+        0.75
+      ]
+    },
+    {
+      "id": "interact",
+      "keys": [
+        "mouse_left"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.3,
+        0.45
+      ]
+    },
+    {
+      "id": "open_box",
+      "keys": [
+        "e"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.2,
+        0.3
+      ]
+    },
+    {
+      "id": "rotate",
+      "keys": [
+        "r"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    }
+  ]
+}

@@ -5,6 +5,13 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.1]
+
+### Changed
+- **`profiles/` is no longer a git submodule** — the 14 bundled profiles are
+  now tracked directly in this repo. No more `git submodule update` required
+  on clone or pull. The TIGHC-Profiles repo still exists independently.
+
 ## [3.9.0]
 
 ### Changed

@@ -1,0 +1,100 @@
+{
+  "name": "Cult of the Lamb",
+  "window_titles": [
+    "cult of the lamb"
+  ],
+  "steamgriddb_id": 5294443,
+  "priority": [
+    "attack",
+    "movement"
+  ],
+  "bindings": [
+    {
+      "id": "movement",
+      "keys": [
+        "w",
+        "a",
+        "s",
+        "d"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.35,
+        0.55
+      ]
+    },
+    {
+      "id": "attack",
+      "keys": [
+        "mouse_left"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.65,
+        0.9
+      ]
+    },
+    {
+      "id": "dodge",
+      "keys": [
+        "shift"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.55,
+        0.75
+      ]
+    },
+    {
+      "id": "curse",
+      "keys": [
+        "mouse_right"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.45,
+        0.65
+      ]
+    },
+    {
+      "id": "interact",
+      "keys": [
+        "x"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    },
+    {
+      "id": "inventory",
+      "keys": [
+        "tab"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    }
+  ]
+}

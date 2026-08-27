@@ -1,0 +1,128 @@
+{
+  "name": "PowerWash Simulator 2",
+  "window_titles": [
+    "powerwash simulator 2"
+  ],
+  "priority": [
+    "wash",
+    "sprint",
+    "movement"
+  ],
+  "bindings": [
+    {
+      "id": "movement",
+      "keys": [
+        "w",
+        "a",
+        "s",
+        "d"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.35,
+        0.55
+      ]
+    },
+    {
+      "id": "sprint",
+      "keys": [
+        "shift"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.45,
+        0.65
+      ]
+    },
+    {
+      "id": "wash",
+      "keys": [
+        "mouse_right"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.45,
+        0.7
+      ]
+    },
+    {
+      "id": "jump",
+      "keys": [
+        "space"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.55,
+        0.75
+      ]
+    },
+    {
+      "id": "stance_cycle",
+      "keys": [
+        "ctrl"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    },
+    {
+      "id": "interact",
+      "keys": [
+        "e"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.2,
+        0.3
+      ]
+    },
+    {
+      "id": "task_list",
+      "keys": [
+        "tab"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    },
+    {
+      "id": "dirt_highlight",
+      "keys": [
+        "q"
+      ],
+      "enabled": true,
+      "devices": [
+        "all"
+      ],
+      "vibe": [
+        0.15,
+        0.25
+      ]
+    }
+  ]
+}
