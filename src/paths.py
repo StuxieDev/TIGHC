@@ -7,7 +7,7 @@ rather than everything routing through one large module.
 
 User data (configs, profiles, artwork cache) lives in the platform-standard
 per-user app directory so it survives git updates and submodule updates:
-  Windows: %APPDATA%\TIGHC\
+  Windows: %APPDATA%\\TIGHC\\
   Linux:   ~/.local/share/TIGHC/
 
 On first launch (empty user profiles dir), profiles.py fetches all profiles
