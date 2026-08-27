@@ -19,6 +19,7 @@ import asyncio
 import copy
 import json
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -77,7 +78,36 @@ BINDING_WIDTHS = {"id": 100, "keys": 200, "devices": 150, "vibe": 90, "enabled":
 PADX = 10
 PADY = 8
 MONOSPACE_FONT = ("Consolas", 10)
+MONOSPACE_BOLD  = ("Consolas", 10, "bold")
 HEADER_FONT = ("Segoe UI", 12, "bold")
+
+# Matches runtime activation lines: [binding_id]: activated (key) [40-65%]
+_LOG_ACTIVATE_RE = re.compile(r"^(\[[^\]]+\])(: activated )(\([^)]+\))( \[[^\]]+\])$")
+
+# Tag color table: {tag_name: (dark_color, light_color)}
+# The log widget uses these to turn plain text into a color-coded terminal.
+_LOG_TAG_COLORS = {
+    # Inline span tags for activation events
+    "log_span_id":      ("#dcdcaa", "#af7d00"),   # [binding_id]
+    "log_span_verb":    ("#4ec9b0", "#008000"),    # : activated
+    "log_span_key":     ("#9cdcfe", "#0070c1"),    # (key)
+    "log_span_range":   ("#ce9178", "#b46200"),    # [40-65%]
+    # Whole-line tags
+    "log_header":       ("#569cd6", "#0000cc"),    # app name / version line
+    "log_profile":      ("#dcdcaa", "#af7d00"),    # [ProfileName] window match line
+    "log_binding":      ("#9cdcfe", "#001080"),    # binding definition line (enabled)
+    "log_disabled":     ("#5c6370", "#aaaaaa"),    # binding definition (disabled)
+    "log_status":       ("#808080", "#777777"),    # - Status -> value lines
+    "log_path":         ("#5c6370", "#aaaaaa"),    # path info lines
+    "log_channels":     ("#4fc1ff", "#0070c1"),    # Channels (N): ... line
+    "log_warning":      ("#ce9178", "#b46200"),    # stay idle / no channels / no profiles
+    "log_activate":     ("#4ec9b0", "#008000"),    # fallback whole-line activation color
+    "log_panic":        ("#f44747", "#cc0000"),    # panic events
+    "log_error":        ("#f44747", "#cc0000"),    # errors
+    "log_device":       ("#4fc1ff", "#0070c1"),    # connection / device events
+    "log_success":      ("#6a9955", "#008000"),    # saved / downloaded / restored
+    "log_default":      ("#d4d4d4", "#1e1e1e"),    # everything else
+}
 # A mid-gray that stays legible against both sv_ttk's light background
 # (near-white) and its dark background (near-black) - avoids needing a
 # separate hint color per theme.
@@ -256,11 +286,21 @@ class App:
         # at all).
         self._restyle_text_widgets()
 
+    _LOG_TERMINAL_COLORS = {"bg": "#0d0d0d", "fg": "#d4d4d4", "insertbackground": "#d4d4d4"}
+
     def _text_widget_colors(self) -> dict:
-        """bg/fg/cursor-color for classic Tk text widgets, matched to sv_ttk's current palette."""
+        """bg/fg/cursor-color for the changelog viewer, matched to sv_ttk's current palette."""
         if self.theme == "dark":
             return {"bg": "#1e1e1e", "fg": "#e6e6e6", "insertbackground": "#e6e6e6"}
         return {"bg": "#ffffff", "fg": "#1c1c1c", "insertbackground": "#1c1c1c"}
+
+    def _configure_log_tags(self):
+        """Apply color tags to the log widget. The log is always dark-terminal style."""
+        if not hasattr(self, "log_text"):
+            return
+        for tag, (dark_color, _) in _LOG_TAG_COLORS.items():
+            font = MONOSPACE_BOLD if tag in ("log_header", "log_profile", "log_panic") else MONOSPACE_FONT
+            self.log_text.tag_configure(tag, foreground=dark_color, font=font)
 
     def _restyle_text_widgets(self):
         """
@@ -270,12 +310,80 @@ class App:
         Tk text box regardless of theme. Called once after both are built,
         and again every time the theme is toggled.
         """
-        colors = self._text_widget_colors()
-        for widget in (getattr(self, "log_text", None), getattr(self, "changelog_text", None)):
-            if widget is not None:
-                widget.configure(**colors)
+        # log_text is always a dark terminal regardless of app theme.
+        if getattr(self, "log_text", None) is not None:
+            self.log_text.configure(**self._LOG_TERMINAL_COLORS)
+        self._configure_log_tags()
+        # changelog_text follows the app theme.
+        changelog_colors = self._text_widget_colors()
+        if getattr(self, "changelog_text", None) is not None:
+            self.changelog_text.configure(**changelog_colors)
         for canvas in self._scrollable_canvases:
-            canvas.configure(bg=colors["bg"])
+            canvas.configure(bg=changelog_colors["bg"])
+
+    @staticmethod
+    def _classify_log_line(text: str) -> str:
+        """
+        Map one log line to a tag name from _LOG_TAG_COLORS.
+        Matches against the patterns produced by engine.print_banner() and
+        the runtime log calls in HapticsController and gui.py itself.
+        """
+        m = text.strip()
+        # Banner: profile header — "[ProfileName]  (window match: ...)"
+        if m.startswith("[") and "(window match:" in m:
+            return "log_profile"
+        # Banner: enabled binding — "  - id (keys)  -> range"
+        if m.startswith("  - ") and "-> " in m and "disabled" not in m:
+            return "log_binding"
+        # Banner: disabled binding
+        if m.startswith("  - ") and "disabled" in m:
+            return "log_disabled"
+        # Banner: status lines — "- Label  -> value" (no leading spaces)
+        if m.startswith("- ") and "-> " in m:
+            return "log_status"
+        # Banner: path info lines
+        if m.startswith(("Global config:", "Profiles dir:", "Devices file:")):
+            return "log_path"
+        # Banner: channel count line
+        if m.startswith("Channels ("):
+            return "log_channels"
+        # Banner: app header line
+        if "active -" in m and "TIGHC" in m:
+            return "log_header"
+        # Warnings
+        lm = m.lower()
+        if "stay idle" in lm or ("no " in lm and ("channel" in lm or "profile" in lm)):
+            return "log_warning"
+        # Runtime events
+        if "panic" in lm:
+            return "log_panic"
+        if any(w in lm for w in ("error", "failed", "fail", "could not", "exception")):
+            return "log_error"
+        if any(w in lm for w in ("connected", "scanning", "disconnected", "reconnect", "device")):
+            return "log_device"
+        if any(w in lm for w in ("saved", "downloaded", "restored", "created", "reset")):
+            return "log_success"
+        if _LOG_ACTIVATE_RE.match(m):
+            return "log_activate"
+        return "log_default"
+
+    def _insert_log_line(self, message: str):
+        """
+        Insert one log line into self.log_text with color tags applied.
+        Activation events get inline span coloring; everything else gets a
+        single whole-line tag from _classify_log_line().
+        """
+        m = message.strip()
+        am = _LOG_ACTIVATE_RE.match(m)
+        if am:
+            self.log_text.insert("end", am.group(1), "log_span_id")
+            self.log_text.insert("end", am.group(2), "log_span_verb")
+            self.log_text.insert("end", am.group(3), "log_span_key")
+            self.log_text.insert("end", am.group(4), "log_span_range")
+            self.log_text.insert("end", "\n")
+        else:
+            tag = self._classify_log_line(m)
+            self.log_text.insert("end", message + "\n", tag)
 
     @staticmethod
     def _add_header(frame, text):
@@ -1902,8 +2010,12 @@ class App:
 
         log_frame = ttk.LabelFrame(frame, text="Log")
         log_frame.pack(fill="both", expand=True, padx=PADX, pady=(0, PADY))
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=16, state="disabled", wrap="word", font=MONOSPACE_FONT)
+        self.log_text = scrolledtext.ScrolledText(
+            log_frame, height=20, state="disabled", wrap="word",
+            font=MONOSPACE_FONT, padx=6, pady=4,
+        )
         self.log_text.pack(fill="both", expand=True)
+        self._configure_log_tags()
 
     def _on_start(self):
         """
@@ -2164,7 +2276,7 @@ class App:
             while True:
                 message = self.log_queue.get_nowait()
                 self.log_text.config(state="normal")
-                self.log_text.insert("end", message + "\n")
+                self._insert_log_line(message)
                 self.log_text.see("end")
                 self.log_text.config(state="disabled")
         except queue.Empty:

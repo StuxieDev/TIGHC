@@ -5,6 +5,16 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.3]
+
+### Changed
+- **Color-coded terminal log** — the Run tab log pane now looks like a dark
+  terminal regardless of app theme. Each line is color-coded by type:
+  profile headers (gold), binding definitions (blue), status lines (gray),
+  channel/connection events (cyan), warnings (orange), errors and panic (red),
+  success messages (green). Activation events get inline span coloring:
+  `[binding_id]` in gold, `activated` in teal, `(key)` in blue, `[range]` in orange.
+
 ## [3.9.2]
 
 ### Changed
