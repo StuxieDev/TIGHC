@@ -429,7 +429,7 @@ class HapticsController:
             return
         binding = self.active_profile.bindings_by_key.get(k)
         if binding:
-            self.log(f"[{binding.id}]: activated ({k})")
+            self.log(f"[{binding.id}]: activated ({k}) [{binding.vibe}]")
             self.schedule(self.pulse(binding.vibe, None, binding.devices, token=k))
 
     def on_key_release(self, key):
@@ -466,7 +466,7 @@ class HapticsController:
         if pressed and self.active_profile is not None:
             binding = self.active_profile.bindings_by_key.get(token)
             if binding:
-                self.log(f"[{binding.id}]: activated ({token})")
+                self.log(f"[{binding.id}]: activated ({token}) [{binding.vibe}]")
                 self.schedule(self.pulse(binding.vibe, None, binding.devices, token=token))
         elif not pressed:
             cancel_event = self._pulse_cancel_events.get(token)
@@ -486,6 +486,7 @@ class HapticsController:
             return
         binding = self.active_profile.bindings_by_key.get("scroll")
         if binding:
+            self.log(f"[{binding.id}]: activated (scroll) [{binding.vibe}]")
             self.schedule(self.pulse(binding.vibe, 0.15, binding.devices))
 
     # ----------------------------------------------------------------- run
