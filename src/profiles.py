@@ -6,10 +6,10 @@ profile.json with window matching metadata and a bindings array where each
 entry contains its own keys, devices, and vibe range inline.
 
 User profiles live in the platform-standard app data directory (see
-src/paths.py). On startup, seed_user_profiles() copies any bundled profile
-(from the profiles/ submodule at BUNDLED_PROFILES_DIR) that isn't yet present
-in the user dir, so new profiles from a submodule update appear automatically
-without overwriting the user's edits to existing ones.
+src/paths.py - PROFILES_DIR). On first launch (empty user profiles dir),
+seed_user_profiles() downloads all profiles from the TIGHC-Profiles GitHub
+repo. Existing user profiles are never overwritten by seeding - only profile
+ids not yet present in the user dir are fetched.
 
 Profiles are matched against the foreground window title so haptics
 automatically follow whatever game currently has focus, and go idle when
@@ -17,13 +17,18 @@ nothing matches.
 """
 
 import json
-import shutil
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from src.paths import BUNDLED_PROFILES_DIR, PROFILES_DIR
+from src.paths import PROFILES_DIR
 from src.ranges import VibeRange
+
+TIGHC_PROFILES_REPO = "StuxieDev/TIGHC-Profiles"
+TIGHC_PROFILES_RAW_BASE = f"https://raw.githubusercontent.com/{TIGHC_PROFILES_REPO}/main"
+TIGHC_PROFILES_API_BASE = f"https://api.github.com/repos/{TIGHC_PROFILES_REPO}/contents"
+TIGHC_PROFILES_URL = f"https://github.com/{TIGHC_PROFILES_REPO}"
 
 
 @dataclass(frozen=True)
@@ -73,54 +78,122 @@ class Profile:
         return any(t in window_title for t in self.window_titles)
 
 
-def seed_user_profiles():
-    """
-    Copy any bundled profile (from BUNDLED_PROFILES_DIR) that isn't yet
-    present in the user profiles dir (PROFILES_DIR). Runs on every startup so
-    new profiles added via a submodule update appear automatically. Profiles
-    the user has already customised are left untouched.
-
-    If no bundled profiles dir exists (e.g. the submodule wasn't checked out),
-    falls back to seeding the built-in Minecraft profile so the app always
-    starts with at least one profile.
-    """
-    if BUNDLED_PROFILES_DIR.exists():
-        for entry in sorted(BUNDLED_PROFILES_DIR.iterdir()):
-            if not entry.is_dir() or not (entry / "profile.json").exists():
-                continue
-            dest = PROFILES_DIR / entry.name
-            if not dest.exists():
-                try:
-                    shutil.copytree(entry, dest)
-                except OSError as e:
-                    print(f"Could not seed profile '{entry.name}' ({e}).")
-    else:
-        # Submodule not checked out - seed the built-in Minecraft default.
-        _seed_builtin_minecraft()
+def _github_get(url: str, timeout: int = 8) -> Optional[bytes]:
+    """GET a URL with a User-Agent header. Returns raw bytes or None on any error."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "TIGHC"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
+    except Exception:
+        return None
 
 
-def restore_profile_from_bundled(profile_id: str) -> bool:
+def fetch_profile_ids_from_github() -> list:
     """
-    Overwrite the user's copy of `profile_id` with the bundled version.
-    Returns True if the bundled version exists and the restore succeeded,
-    False otherwise (bundled profile not found, or write error).
+    Return the list of profile folder names available in the TIGHC-Profiles
+    GitHub repo (i.e. every directory at the repo root that isn't 'assets').
+    Returns an empty list if the request fails (offline, rate-limited, etc.).
     """
-    src = BUNDLED_PROFILES_DIR / profile_id
-    if not src.exists() or not (src / "profile.json").exists():
+    data = _github_get(TIGHC_PROFILES_API_BASE)
+    if data is None:
+        return []
+    try:
+        items = json.loads(data.decode())
+        return [
+            item["name"] for item in items
+            if item.get("type") == "dir" and item["name"] != "assets"
+        ]
+    except Exception:
+        return []
+
+
+def fetch_profile_from_github(profile_id: str) -> Optional[dict]:
+    """
+    Fetch and parse a single profile.json from the TIGHC-Profiles GitHub repo.
+    Returns the parsed dict or None if the request fails or the JSON is invalid.
+    """
+    data = _github_get(f"{TIGHC_PROFILES_RAW_BASE}/{profile_id}/profile.json")
+    if data is None:
+        return None
+    try:
+        return json.loads(data.decode())
+    except Exception:
+        return None
+
+
+def download_missing_profiles(log=print) -> int:
+    """
+    Fetch any profile from the TIGHC-Profiles GitHub repo that isn't already
+    in the user's profiles dir. Returns the number of newly downloaded profiles.
+    Profiles the user already has (even if unmodified) are left untouched.
+    """
+    existing = {d.name for d in PROFILES_DIR.iterdir() if d.is_dir()} if PROFILES_DIR.exists() else set()
+    profile_ids = fetch_profile_ids_from_github()
+    if not profile_ids:
+        log("Could not reach TIGHC-Profiles on GitHub (offline?).")
+        return 0
+
+    new_ids = [pid for pid in profile_ids if pid not in existing]
+    count = 0
+    for profile_id in new_ids:
+        data = fetch_profile_from_github(profile_id)
+        if data is None:
+            log(f"Failed to download profile '{profile_id}'.")
+            continue
+        dest = PROFILES_DIR / profile_id
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "profile.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+        log(f"Downloaded profile '{profile_id}'.")
+        count += 1
+    return count
+
+
+def restore_profile_from_github(profile_id: str) -> bool:
+    """
+    Overwrite the user's copy of profile_id with the version from the
+    TIGHC-Profiles GitHub repo. Returns True on success, False if the
+    profile doesn't exist in the repo or the download fails.
+    """
+    data = fetch_profile_from_github(profile_id)
+    if data is None:
         return False
     dest = PROFILES_DIR / profile_id
-    try:
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(src, dest)
-        return True
-    except OSError:
-        return False
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "profile.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return True
+
+
+# Keep old name as an alias so any code referencing it still works.
+restore_profile_from_bundled = restore_profile_from_github
 
 
 def has_bundled_version(profile_id: str) -> bool:
-    """True if profile_id exists in the bundled profiles (can be restored to default)."""
-    return (BUNDLED_PROFILES_DIR / profile_id / "profile.json").exists()
+    """True if this profile exists in the TIGHC-Profiles GitHub repo."""
+    data = _github_get(
+        f"{TIGHC_PROFILES_RAW_BASE}/{profile_id}/profile.json",
+        timeout=4,
+    )
+    return data is not None
+
+
+def seed_user_profiles():
+    """
+    Called on first launch (empty user profiles dir) to populate PROFILES_DIR
+    from the TIGHC-Profiles GitHub repo. If the download fails (offline, etc.),
+    falls back to the built-in Minecraft profile so the app always starts with
+    at least one profile. Does nothing if the user already has profiles.
+    """
+    existing = [d for d in PROFILES_DIR.iterdir() if d.is_dir()] if PROFILES_DIR.exists() else []
+    if existing:
+        return  # user already has profiles - never overwrite on startup
+
+    print("First launch: downloading profiles from GitHub...")
+    count = download_missing_profiles()
+    if count == 0:
+        print("Download failed - creating built-in Minecraft profile as fallback.")
+        _seed_builtin_minecraft()
+    else:
+        print(f"Downloaded {count} profile(s).")
 
 
 _BUILTIN_MINECRAFT = {
@@ -142,7 +215,6 @@ _BUILTIN_MINECRAFT = {
     ],
 }
 
-# Keep the old name around so any external code that imports it still works.
 DEFAULT_MINECRAFT_PROFILE = _BUILTIN_MINECRAFT
 
 
@@ -152,7 +224,6 @@ def _seed_builtin_minecraft():
     dest = profile_dir / "profile.json"
     if not dest.exists():
         dest.write_text(json.dumps(_BUILTIN_MINECRAFT, indent=2), encoding="utf-8")
-        print(f"Created built-in Minecraft profile at {profile_dir}.")
 
 
 def _parse_devices_field(binding: dict) -> Optional[frozenset]:
@@ -248,9 +319,9 @@ def _load_profile(profile_dir: Path) -> Profile:
 
 def load_profiles() -> dict:
     """
-    Seed from bundled profiles, then discover and load every profile folder
-    under PROFILES_DIR into a dict keyed by profile id (the folder name), in
-    alphabetical order.
+    Seed from GitHub on first launch (empty user profiles dir), then discover
+    and load every profile folder under PROFILES_DIR into a dict keyed by
+    profile id (the folder name), in alphabetical order.
 
     Any folder that fails to load raises RuntimeError immediately (wrapping
     the underlying ValueError/OSError/KeyError with the offending folder's
@@ -258,6 +329,7 @@ def load_profiles() -> dict:
     produce a program that silently starts with fewer profiles than the user
     configured.
     """
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     seed_user_profiles()
 
     profiles = {}

@@ -5,12 +5,25 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.2]
+
+### Changed
+- **Profiles fetched from GitHub** — bundled profiles are no longer stored in
+  this repo at all. On first launch (empty user profiles dir), TIGHC downloads
+  all profiles from the [TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles)
+  GitHub repo. If offline, the built-in Minecraft profile is used as a fallback.
+- **"Update profiles from GitHub"** button in the Profiles tab downloads any
+  profiles from TIGHC-Profiles not yet in your local profiles dir (existing
+  profiles are never overwritten).
+- **"Restore from GitHub..."** button in the Profiles tab re-downloads the
+  selected profile from GitHub, overwriting your local copy.
+- **"Browse profiles on GitHub"** link in Settings opens the TIGHC-Profiles
+  repository in the browser.
+
 ## [3.9.1]
 
 ### Changed
-- **`profiles/` is no longer a git submodule** — the 14 bundled profiles are
-  now tracked directly in this repo. No more `git submodule update` required
-  on clone or pull. The TIGHC-Profiles repo still exists independently.
+- (Superseded by 3.9.2 — bundled profiles removed from this repo entirely.)
 
 ## [3.9.0]
 

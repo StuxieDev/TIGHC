@@ -39,22 +39,23 @@ from src import tighc
 from src.tighc import (
     AUTHOR_NAME,
     AUTHOR_URL,
-    BUNDLED_PROFILES_DIR,
     CONFIGS_DIR,
     PROFILES_DIR,
     PROJECT_NAME,
     PROJECT_SHORT_NAME,
     REPO_URL,
+    TIGHC_PROFILES_URL,
     USER_DATA_DIR,
     WEBSITE_URL,
     HapticsController,
     VibeRange,
     __version__,
+    download_missing_profiles,
     has_bundled_version,
     load_haptics_config,
     load_device_registry,
     load_profiles,
-    restore_profile_from_bundled,
+    restore_profile_from_github,
     save_device_registry,
 )
 
@@ -661,7 +662,8 @@ class App:
         )
         self._make_accent_button(top, text="New profile...", command=self._on_new_profile).pack(side="left", padx=4)
         ttk.Button(top, text="Reload all from disk", command=self._on_reload_profiles).pack(side="left", padx=4)
-        ttk.Button(top, text="Restore to bundled...", command=self._on_restore_profile).pack(side="left", padx=4)
+        ttk.Button(top, text="Restore from GitHub...", command=self._on_restore_profile).pack(side="left", padx=4)
+        ttk.Button(top, text="Update profiles from GitHub", command=self._on_update_profiles_from_github).pack(side="left", padx=4)
         ttk.Button(top, text="Open profiles folder", command=lambda: self._open_folder(PROFILES_DIR)).pack(side="left", padx=4)
 
         body = self._build_scrollable_body(frame, padding=(0, 0))
@@ -966,29 +968,54 @@ class App:
 
     def _on_restore_profile(self):
         """
-        "Restore to bundled..." button handler: overwrites the currently
-        selected user profile with the bundled (submodule) version, if one
-        exists. Asks for confirmation first since this discards any edits.
+        "Restore from GitHub..." button handler: downloads the currently
+        selected profile from the TIGHC-Profiles GitHub repo and overwrites
+        the user's local copy. Asks for confirmation first.
         """
         if not self.current_profile_id:
-            messagebox.showinfo("Restore to bundled", "No profile selected.")
-            return
-        if not has_bundled_version(self.current_profile_id):
-            messagebox.showinfo(
-                "Restore to bundled",
-                f"'{self.current_profile_id}' has no bundled version - it was created by you and can't be restored.",
-            )
+            messagebox.showinfo("Restore from GitHub", "No profile selected.")
             return
         if not messagebox.askyesno(
-            "Restore to bundled",
-            f"Overwrite your copy of '{self.current_profile_id}' with the bundled default?\n\nThis cannot be undone.",
+            "Restore from GitHub",
+            f"Download '{self.current_profile_id}' from the TIGHC-Profiles GitHub repo and overwrite your local copy?\n\nThis cannot be undone.",
         ):
             return
-        if restore_profile_from_bundled(self.current_profile_id):
-            self._on_reload_profiles()
-            self._enqueue_log(f"Restored '{self.current_profile_id}' to bundled default.")
-        else:
-            messagebox.showerror("Restore to bundled", "Restore failed - see console for details.")
+        profile_id = self.current_profile_id
+
+        def do_restore():
+            ok = restore_profile_from_github(profile_id)
+            def on_done():
+                if ok:
+                    self._on_reload_profiles()
+                    self._enqueue_log(f"Restored '{profile_id}' from GitHub.")
+                else:
+                    messagebox.showerror("Restore from GitHub", f"Could not download '{profile_id}' - check your internet connection.")
+            self.root.after(0, on_done)
+
+        threading.Thread(target=do_restore, daemon=True).start()
+
+    def _on_update_profiles_from_github(self):
+        """
+        "Update profiles from GitHub" button handler: downloads any profiles
+        from the TIGHC-Profiles GitHub repo that aren't yet in the user's
+        profiles dir. Existing user profiles are not overwritten.
+        """
+        self._enqueue_log("Checking GitHub for new profiles...")
+        messages = []
+
+        def do_update():
+            count = download_missing_profiles(log=messages.append)
+            def on_done():
+                for msg in messages:
+                    self._enqueue_log(msg)
+                if count > 0:
+                    self._on_reload_profiles()
+                    self._enqueue_log(f"Downloaded {count} new profile(s) from GitHub.")
+                else:
+                    self._enqueue_log("No new profiles found.")
+            self.root.after(0, on_done)
+
+        threading.Thread(target=do_update, daemon=True).start()
 
     @staticmethod
     def _open_folder(path):
@@ -1760,7 +1787,9 @@ class App:
         ttk.Button(folders_frame, text="Open user data folder", command=lambda: self._open_folder(USER_DATA_DIR)).pack(side="left", padx=(0, 6))
         ttk.Button(folders_frame, text="Open configs folder", command=lambda: self._open_folder(CONFIGS_DIR)).pack(side="left", padx=(0, 6))
         ttk.Button(folders_frame, text="Open profiles folder", command=lambda: self._open_folder(PROFILES_DIR)).pack(side="left", padx=(0, 6))
-        ttk.Button(folders_frame, text="Open bundled profiles folder", command=lambda: self._open_folder(BUNDLED_PROFILES_DIR)).pack(side="left")
+        profiles_link = ttk.Label(folders_frame, text="Browse profiles on GitHub", foreground=ACCENT_COLOR, cursor="hand2")
+        profiles_link.pack(side="left", padx=(6, 0))
+        profiles_link.bind("<Button-1>", lambda _e: webbrowser.open(TIGHC_PROFILES_URL))
         row += 1
         ttk.Label(
             body,

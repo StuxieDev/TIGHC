@@ -5,7 +5,7 @@
 > for use only by adults aged 18 or older. Both `gui.py` and `cli.py`
 > require you to confirm this before they'll start.
 
-**Version 3.9.1** — see [CHANGELOG.md](CHANGELOG.md) for release history.
+**Version 3.9.2** — see [CHANGELOG.md](CHANGELOG.md) for release history.
 (Formerly "Game Haptics" / "Minecraft-x-Lovense-intiface".)
 
 ![TIGHC](assets/logo.png)
@@ -30,24 +30,8 @@ Repository: https://github.com/StuxieDev/TIGHC
 
 ## Quick start
 
-`profiles/` is a separate git repository ([TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles))
-checked out as a submodule, so clone with `--recurse-submodules`:
-
 ```
-git clone --recurse-submodules https://github.com/StuxieDev/TIGHC.git
-```
-
-Already cloned without it? Run this once from the repo root instead:
-
-```
-git submodule update --init
-```
-
-Skipping this leaves `profiles/` empty, and since the app only seeds the
-default Minecraft profile when the whole `profiles/` folder is missing (not
-when it's just empty), you'll end up with no profiles and no auto-seed.
-
-```
+git clone https://github.com/StuxieDev/TIGHC.git
 python gui.py
 ```
 
@@ -94,9 +78,8 @@ src/
 cli.py                            # headless CLI entry point (imports src/tighc.py)
 gui.py                            # interactive configurator + launcher (also imports src/tighc.py)
 assets/                           # icon.png/icon.ico (window icon) and logo.png (About tab banner)
-profiles/                         # bundled default profiles, read-only at runtime
 %APPDATA%\TIGHC\  (or ~/.local/share/TIGHC/ on Linux)  # per-user data, never touched by git
-  profiles/                       # your working copy of profiles (seeded from bundled profiles on first run)
+  profiles/                       # downloaded from TIGHC-Profiles on GitHub on first launch
   configs/
     haptics.json                  # global settings (connection, panic key, smoothing, ...)
     devices.json                  # remembers a nickname for each connected motor/capability
@@ -116,25 +99,22 @@ same files.
 
 ## Profiles: one per game
 
-Each folder under `profiles/` is a **profile**: a game, its window title(s),
-and its keybinds. The script watches whatever window currently has focus and
-automatically switches to whichever profile matches, going idle when nothing
-matches - so you can alt-tab between games and it just follows along. The
-easiest way to add a new one is the GUI's "New profile..." button (it starts
-you off with a copy of the Minecraft profile to edit); to do it by hand, copy
-the `profiles/minecraft/` folder, rename it, and edit `window_titles` plus
-the bindings.
+Your profiles live in `%APPDATA%\TIGHC\profiles\` (or `~/.local/share/TIGHC/profiles/`
+on Linux). On first launch, TIGHC downloads all profiles from
+[TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles) on GitHub and
+seeds them there. Profiles you edit are never overwritten automatically.
 
-Since `profiles/` is its own git repository (checked out as a submodule, see
-[TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles)), any profile
-you add or edit there has its own commit/push history separate from this
-repo - it won't show up in `git status` here beyond the submodule's pinned
-commit changing. If you want to share a new profile back, commit and push it
-from inside `profiles/` against the TIGHC-Profiles repo (or open a PR there),
-not this one. Purely local/private profiles work fine too - just leave that
-submodule checkout uncommitted/unpushed.
+Each profile is a folder containing a single `profile.json` with the game's
+window title(s), keybinds, and intensity ranges. The GUI watches whatever
+window currently has focus and automatically switches to the matching profile -
+so you can alt-tab between games and it just follows along.
 
-Each binding in `keybinds.json` has:
+The easiest way to add a new profile is the GUI's "New profile..." button.
+Use "Update profiles from GitHub" in the Profiles tab to pick up any new
+profiles added to the TIGHC-Profiles repo. Want to share a profile you've
+made? Open a pull request on [TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles).
+
+Each binding in `profile.json` has:
 
 - **`keys`** - the key(s)/button(s) that trigger it (`w`, `space`, `ctrl`,
   `mouse_left`, `mouse_right`, `mouse_middle`, `scroll`, digits, etc.)
@@ -147,19 +127,16 @@ Each binding in `keybinds.json` has:
   from `configs/devices.json`, or `["all"]` (the default if omitted).
 - **`enabled`** - set to `false` to turn a binding off without deleting it.
 
-The matching entry in `ranges.json` (keyed by the same binding `id`) holds
-the actual numbers: `vibe` (a `[low, high]` intensity band, 0.0-1.0) and,
-for pulse bindings, `duration` (a `[low, high]` band in seconds). A random
-value is rolled from the band each time, so nothing feels perfectly
-repetitive. There's always a `background` entry too - the idle level used
-whenever nothing more specific is happening.
+Each binding's `vibe` is a `[low, high]` intensity band (0.0–1.0). A random
+value is rolled from the band each activation, so nothing feels perfectly
+repetitive.
 
-`priority` in `keybinds.json` lists continuous binding ids in "first match
-wins" order - useful when more than one could apply at once (e.g. attacking
-should win over just sneaking).
+`priority` lists binding ids in "first match wins" order - useful when more
+than one binding could apply at once (e.g. attacking should win over just
+moving).
 
-A `grounded2` profile is included alongside `minecraft` as a second working
-example (movement/sprint/crouch/attack/aim-block as continuous, jump/interact
+A `grounded_2` profile is included alongside `minecraft` as a second working
+example (movement/sprint/crouch/attack/aim-block, jump/interact
 /inventory/hotbar as pulses). It's built from Grounded's standard default
 keybinds rather than anything sequel-specific - if Grounded 2 changes any of
 them, just edit the profile in the GUI (or the JSON directly) to match.

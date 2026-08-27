@@ -10,20 +10,14 @@ per-user app directory so it survives git updates and submodule updates:
   Windows: %APPDATA%\TIGHC\
   Linux:   ~/.local/share/TIGHC/
 
-The bundled/default profiles (the profiles/ submodule) live at REPO_ROOT and
-are read-only from the user's perspective. On startup, profiles.py seeds any
-bundled profile not yet present in the user data dir, so new profiles from a
-submodule update appear automatically without clobbering user edits.
+On first launch (empty user profiles dir), profiles.py fetches all profiles
+from the TIGHC-Profiles GitHub repo and seeds them into the user profiles dir.
 """
 
 import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-# Bundled (default) profiles: the profiles/ git submodule at the repo root.
-# These are never written to by the running app - treat as read-only.
-BUNDLED_PROFILES_DIR = REPO_ROOT / "profiles"
 
 # Platform-standard per-user app directory.
 if os.name == "nt":
