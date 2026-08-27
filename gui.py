@@ -718,7 +718,7 @@ class App:
     def _profile_display_name(self, profile_id: str) -> str:
         """
         Display text for one profile in the Profiles/Test tab pickers -
-        the profile's own `name` from keybinds.json (e.g. "Cult of the
+        the profile's own `name` from profile.json (e.g. "Cult of the
         Lamb"), not the raw folder id (e.g. "cult_of_the_lamb") the picker
         widgets are otherwise keyed by everywhere else in this file. Falls
         back to the id itself if it's somehow not loaded (shouldn't
@@ -776,7 +776,7 @@ class App:
         DurationRange/frozenset objects, as produced by tighc._load_profile)
         into a plain, JSON-friendly, Tkinter-Var-friendly dict that the
         bindings table and the add/edit dialog can work with directly.
-        The reverse conversion happens in _compose_profile_files().
+        The reverse conversion happens in _compose_profile().
         """
         return {
             "id": binding["id"],
@@ -856,10 +856,10 @@ class App:
     def _on_new_profile(self):
         """
         "New profile..." button handler: asks for a folder id, display name,
-        and window-title match, then seeds the new profile's keybinds.json/
-        ranges.json from an existing profiles/minecraft/ on disk if present
-        (so a user's own edits to it get carried forward as the template),
-        falling back to the hardcoded DEFAULT_MINECRAFT_* dicts otherwise.
+        and window-title match, then seeds the new profile's profile.json
+        from an existing profiles/minecraft/ on disk if present (so a user's
+        own edits to it get carried forward as the template), falling back to
+        the hardcoded DEFAULT_MINECRAFT_PROFILE dict otherwise.
         Rolls the new folder back (shutil.rmtree) if the result somehow
         fails to parse, so a bad template can't leave a broken profile
         folder lying around.
@@ -880,18 +880,17 @@ class App:
         ) or new_id
 
         template_dir = PROFILES_DIR / "minecraft"
-        if (template_dir / "keybinds.json").exists() and (template_dir / "ranges.json").exists():
-            keybinds = json.loads((template_dir / "keybinds.json").read_text(encoding="utf-8"))
-            ranges = json.loads((template_dir / "ranges.json").read_text(encoding="utf-8"))
+        if (template_dir / "profile.json").exists():
+            profile_data = json.loads((template_dir / "profile.json").read_text(encoding="utf-8"))
         else:
-            keybinds = copy.deepcopy(tighc.DEFAULT_MINECRAFT_KEYBINDS)
-            ranges = copy.deepcopy(tighc.DEFAULT_MINECRAFT_RANGES)
-        keybinds["name"] = display_name
-        keybinds["window_titles"] = [window_title]
+            profile_data = copy.deepcopy(tighc.DEFAULT_MINECRAFT_PROFILE)
+        profile_data["name"] = display_name
+        profile_data["window_titles"] = [window_title]
+        profile_data.pop("steamgriddb_id", None)
+        profile_data.pop("steamgriddb_grid_id", None)
 
         new_dir.mkdir(parents=True)
-        (new_dir / "keybinds.json").write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
-        (new_dir / "ranges.json").write_text(json.dumps(ranges, indent=2), encoding="utf-8")
+        (new_dir / "profile.json").write_text(json.dumps(profile_data, indent=2), encoding="utf-8")
         try:
             profile = tighc._load_profile(new_dir)
         except Exception as e:
@@ -923,16 +922,12 @@ class App:
         self._refresh_profile_list()
         self._enqueue_log("Profiles reloaded from disk.")
 
-    def _compose_profile_files(self):
+    def _compose_profile(self):
         """
-        Build the (keybinds_dict, ranges_dict) pair to write to disk from
-        the current form fields and self.current_bindings - the reverse of
-        _binding_to_editable(). Raises ValueError (with a message meant to
-        be shown to the user directly) on anything that won't parse:
-        missing window title, or a VibeRange/DurationRange constructed with
-        low > high or out-of-bounds values. Does not touch disk itself -
-        see _on_save_profile() for the write+validate+rollback flow that
-        calls this.
+        Build the profile dict to write to profile.json from the current form
+        fields and self.current_bindings - the reverse of _binding_to_editable().
+        Raises ValueError on anything that won't parse (missing window title,
+        invalid vibe range). Does not touch disk - see _on_save_profile().
         """
         name = self.profile_name_var.get().strip() or self.current_profile_id
         window_titles = [t.strip() for t in self.profile_windows_var.get().split(",") if t.strip()]
@@ -944,34 +939,34 @@ class App:
         bg_high = float(self.profile_bg_high_var.get()) / 100.0
         VibeRange(bg_low, bg_high)
 
-        keybinds = {
+        profile = {
             "name": name,
             "window_titles": window_titles,
-            "priority": priority,
-            "bindings": [
-                {"id": b["id"], "keys": b["keys"], "enabled": b["enabled"], "devices": b["devices"]}
-                for b in self.current_bindings
-            ],
         }
         if exact_match:
-            keybinds["window_title_exact"] = True
-        # steamgriddb_id isn't editable via this form (see
-        # _on_change_artwork's dialog instead) - carry the currently-loaded
-        # value forward so a routine save here doesn't silently clear it.
+            profile["window_title_exact"] = True
+        # steamgriddb fields aren't editable via this form - carry them forward.
         current_profile = self.controller.profiles.get(self.current_profile_id)
         if current_profile and current_profile.steamgriddb_id is not None:
-            keybinds["steamgriddb_id"] = current_profile.steamgriddb_id
-
-        ranges = {"background": {"vibe": [bg_low, bg_high]}}
+            profile["steamgriddb_id"] = current_profile.steamgriddb_id
+        if current_profile and current_profile.steamgriddb_grid_id is not None:
+            profile["steamgriddb_grid_id"] = current_profile.steamgriddb_grid_id
+        if priority:
+            profile["priority"] = priority
+        profile["background_vibe"] = [bg_low, bg_high]
+        profile["bindings"] = []
         for b in self.current_bindings:
             VibeRange(b["vibe_low"], b["vibe_high"])
-            ranges[b["id"]] = {"vibe": [b["vibe_low"], b["vibe_high"]]}
-        return keybinds, ranges
+            profile["bindings"].append({
+                "id": b["id"], "keys": b["keys"], "enabled": b["enabled"],
+                "devices": b["devices"], "vibe": [b["vibe_low"], b["vibe_high"]],
+            })
+        return profile
 
     def _on_save_profile(self):
         """
         "Save profile" button handler. Snapshots the current on-disk JSON
-        first, writes the new keybinds.json/ranges.json from the form, then
+        first, writes the new profile.json from the form, then
         immediately tries to load them back through the real engine parser
         (tighc._load_profile) - if that fails, the snapshot is restored
         so a bad edit never leaves the profile folder in a broken state,
@@ -983,23 +978,20 @@ class App:
         if not self.current_profile_id:
             return
         profile_dir = PROFILES_DIR / self.current_profile_id
-        keybinds_path = profile_dir / "keybinds.json"
-        ranges_path = profile_dir / "ranges.json"
-        backup = (keybinds_path.read_text(encoding="utf-8"), ranges_path.read_text(encoding="utf-8"))
+        profile_path = profile_dir / "profile.json"
+        backup = profile_path.read_text(encoding="utf-8")
 
         try:
-            keybinds, ranges = self._compose_profile_files()
+            profile_data = self._compose_profile()
         except (ValueError, TypeError) as e:
             messagebox.showerror("Save profile", f"Invalid value: {e}")
             return
 
-        keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
-        ranges_path.write_text(json.dumps(ranges, indent=2), encoding="utf-8")
+        profile_path.write_text(json.dumps(profile_data, indent=2), encoding="utf-8")
         try:
             profile = tighc._load_profile(profile_dir)
         except Exception as e:
-            keybinds_path.write_text(backup[0], encoding="utf-8")
-            ranges_path.write_text(backup[1], encoding="utf-8")
+            profile_path.write_text(backup, encoding="utf-8")
             messagebox.showerror("Save profile", f"Not saved - config is invalid:\n{e}")
             return
 
@@ -1011,23 +1003,23 @@ class App:
         """
         Shared mechanics behind _set_profile_steamgriddb_id() and
         _set_profile_steamgriddb_grid_id() below: apply `updates` (a dict of
-        keybinds.json field -> new value, where None means "remove this
-        field") to a profile's keybinds.json, reload it through the real
+        profile.json field -> new value, where None means "remove this
+        field") to a profile's profile.json, reload it through the real
         parser, refresh its artwork if it's the currently-selected profile,
         and log via `log_message_fn(profile)` - called after reload so it
         can use the profile's resolved display name. A targeted update
-        rather than going through _compose_profile_files, since that only
+        rather than going through _compose_profile(), since that only
         knows about what the Profiles tab's form itself edits.
         """
         profile_dir = PROFILES_DIR / profile_id
-        keybinds_path = profile_dir / "keybinds.json"
-        keybinds = json.loads(keybinds_path.read_text(encoding="utf-8"))
+        profile_path = profile_dir / "profile.json"
+        profile_data = json.loads(profile_path.read_text(encoding="utf-8"))
         for key, value in updates.items():
             if value is None:
-                keybinds.pop(key, None)
+                profile_data.pop(key, None)
             else:
-                keybinds[key] = value
-        keybinds_path.write_text(json.dumps(keybinds, indent=2), encoding="utf-8")
+                profile_data[key] = value
+        profile_path.write_text(json.dumps(profile_data, indent=2), encoding="utf-8")
 
         try:
             profile = tighc._load_profile(profile_dir)
@@ -1042,7 +1034,7 @@ class App:
     def _set_profile_steamgriddb_id(self, profile_id, game_id):
         """
         Write `game_id` (or None, to go back to searching by name) into a
-        profile's keybinds.json as steamgriddb_id. Also clears any pinned
+        profile's profile.json as steamgriddb_id. Also clears any pinned
         cover image (steamgriddb_grid_id) - a specific image chosen for the
         old game wouldn't mean anything once the game itself changes. Used
         by _on_change_artwork.
@@ -1059,7 +1051,7 @@ class App:
     def _set_profile_steamgriddb_grid_id(self, profile_id, grid_id):
         """
         Write `grid_id` (or None, to go back to the default top-voted
-        image) into a profile's keybinds.json as steamgriddb_grid_id,
+        image) into a profile's profile.json as steamgriddb_grid_id,
         without touching any existing game override. Used by
         _on_choose_cover_image.
         """

@@ -12,7 +12,7 @@ from:
   src/ranges.py          - VibeRange/DurationRange/PulseSpec
   src/haptics_config.py  - configs/haptics_config.json load/apply + derived settings
   src/devices.py         - configs/devices.json registry + DeviceChannel
-  src/profiles.py        - profiles/<id>/{keybinds,ranges}.json loading + Profile
+  src/profiles.py        - profiles/<id>/profile.json loading + Profile
   src/input.py           - keyboard/mouse normalization, focused-window lookup
   src/engine.py          - HapticsController, the engine itself
   src/steamgriddb.py     - SteamGridDB cover-art fetching/caching
@@ -64,8 +64,7 @@ from src.devices import (
     save_device_registry,
 )
 from src.profiles import (
-    DEFAULT_MINECRAFT_KEYBINDS,
-    DEFAULT_MINECRAFT_RANGES,
+    DEFAULT_MINECRAFT_PROFILE,
     PROFILES,
     Binding,
     Profile,

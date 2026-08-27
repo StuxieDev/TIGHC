@@ -1,14 +1,13 @@
-"""Game profiles (profiles/<id>/{keybinds,ranges}.json): what each game's
-keybinds/ranges are, and loading/validating them.
+"""Game profiles (profiles/<id>/profile.json): what each game's bindings are
+and how to match its window title.
 
-Each profile is a folder under profiles/<id>/ with two files:
-  keybinds.json - which keys/buttons do what, their mode (continuous/pulse),
-                  and which device nickname(s) (or "all") they drive
-  ranges.json   - the vibe/duration bands for each binding, by id
+Each profile is a folder under profiles/<id>/ containing a single profile.json
+with window matching metadata, a background_vibe idle level, and a bindings
+array where each entry contains its own keys, devices, and vibe range inline.
 
-Profiles are matched against the foreground window title (see
-HapticsController._match_profile in engine.py) so haptics automatically
-follow whatever game currently has focus, and go idle when nothing matches.
+Profiles are matched against the foreground window title so haptics
+automatically follow whatever game currently has focus, and go idle when
+nothing matches.
 """
 
 import json
@@ -17,48 +16,28 @@ from pathlib import Path
 from typing import Optional
 
 from src.paths import PROFILES_DIR
-from src.ranges import DurationRange, VibeRange
+from src.ranges import VibeRange
 
 # Seeded to profiles/minecraft/ the first time the script runs (i.e. when
-# profiles/ doesn't exist yet), reproducing the behavior this script used to
-# have built in. Copy this folder to add another game.
-DEFAULT_MINECRAFT_KEYBINDS = {
+# profiles/ doesn't exist yet). Copy this folder to add another game.
+DEFAULT_MINECRAFT_PROFILE = {
     "name": "Minecraft",
     "window_titles": ["minecraft"],
     "priority": ["attack", "use", "sneak", "sprint", "movement"],
+    "background_vibe": [0.20, 0.35],
     "bindings": [
-        {"id": "movement", "keys": ["w", "a", "s", "d"], "mode": "continuous", "enabled": True, "devices": ["all"]},
-        {"id": "sprint", "keys": ["ctrl"], "mode": "continuous", "enabled": True, "devices": ["all"]},
-        {"id": "sneak", "keys": ["shift"], "mode": "continuous", "enabled": True, "devices": ["all"]},
-        {"id": "attack", "keys": ["mouse_left"], "mode": "continuous", "enabled": True, "devices": ["all"]},
-        {"id": "use", "keys": ["mouse_right"], "mode": "continuous", "enabled": True, "devices": ["all"]},
-        {"id": "jump", "keys": ["space"], "mode": "pulse", "enabled": True, "devices": ["all"]},
-        {"id": "pick_block", "keys": ["mouse_middle"], "mode": "pulse", "enabled": True, "devices": ["all"]},
-        {"id": "drop", "keys": ["q"], "mode": "pulse", "enabled": True, "devices": ["all"]},
-        {"id": "offhand", "keys": ["f"], "mode": "pulse", "enabled": True, "devices": ["all"]},
-        {"id": "inventory", "keys": ["e"], "mode": "pulse", "enabled": True, "devices": ["all"]},
-        {
-            "id": "switch_item",
-            "keys": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "scroll"],
-            "mode": "pulse",
-            "enabled": True,
-            "devices": ["all"],
-        },
+        {"id": "movement",    "keys": ["w", "a", "s", "d"],              "enabled": True, "devices": ["all"], "vibe": [0.40, 0.65]},
+        {"id": "sprint",      "keys": ["ctrl"],                          "enabled": True, "devices": ["all"], "vibe": [0.50, 0.70]},
+        {"id": "sneak",       "keys": ["shift"],                         "enabled": True, "devices": ["all"], "vibe": [0.30, 0.50]},
+        {"id": "attack",      "keys": ["mouse_left"],                    "enabled": True, "devices": ["all"], "vibe": [0.75, 1.00]},
+        {"id": "use",         "keys": ["mouse_right"],                   "enabled": True, "devices": ["all"], "vibe": [0.55, 0.80]},
+        {"id": "jump",        "keys": ["space"],                         "enabled": True, "devices": ["all"], "vibe": [0.70, 0.95]},
+        {"id": "pick_block",  "keys": ["mouse_middle"],                  "enabled": True, "devices": ["all"], "vibe": [0.30, 0.45]},
+        {"id": "drop",        "keys": ["q"],                             "enabled": True, "devices": ["all"], "vibe": [0.25, 0.40]},
+        {"id": "offhand",     "keys": ["f"],                             "enabled": True, "devices": ["all"], "vibe": [0.25, 0.40]},
+        {"id": "inventory",   "keys": ["e"],                             "enabled": True, "devices": ["all"], "vibe": [0.15, 0.25]},
+        {"id": "switch_item", "keys": ["1","2","3","4","5","6","7","8","9","scroll"], "enabled": True, "devices": ["all"], "vibe": [0.15, 0.30]},
     ],
-}
-DEFAULT_MINECRAFT_RANGES = {
-    "background": {"vibe": [0.20, 0.35]},
-    "movement": {"vibe": [0.40, 0.65]},
-    "sprint": {"vibe": [0.50, 0.70]},
-    "sneak": {"vibe": [0.30, 0.50]},
-    "attack": {"vibe": [0.75, 1.00]},
-    "use": {"vibe": [0.55, 0.80]},
-    "jump": {"vibe": [0.70, 0.95], "duration": [0.30, 0.40]},
-    "pick_block": {"vibe": [0.30, 0.45], "duration": [0.15, 0.25]},
-    "drop": {"vibe": [0.25, 0.40], "duration": [0.15, 0.25]},
-    "offhand": {"vibe": [0.25, 0.40], "duration": [0.15, 0.25]},
-    "inventory": {"vibe": [0.15, 0.25], "duration": [0.15, 0.25]},
-    "switch_item": {"vibe": [0.15, 0.30], "duration": [0.10, 0.15]},
 }
 
 
@@ -81,7 +60,7 @@ class Profile:
     bindings_by_key: dict  # key/button token -> Binding, all enabled bindings merged for event dispatch
     background: VibeRange
     bindings: list  # raw parsed bindings, in file order, for the startup banner
-    priority: list  # raw id order from keybinds.json, used by the GUI's priority field
+    priority: list  # raw id order from profile.json, used by the GUI's priority field
     # When True, window_titles entries must equal the full window title exactly
     # (case-sensitive). When False (default), each entry is a substring - the
     # title just needs to contain it. Use exact=True when two games share a
@@ -111,14 +90,13 @@ class Profile:
 
 
 def _seed_default_profile():
-    """Write profiles/minecraft/{keybinds,ranges}.json from the DEFAULT_MINECRAFT_* dicts above."""
+    """Write profiles/minecraft/profile.json from DEFAULT_MINECRAFT_PROFILE."""
     # Only ever called when PROFILES_DIR doesn't exist yet (see
     # load_profiles()), so this always creates a brand-new folder - it's not
     # meant to "reset" an existing, possibly user-edited minecraft profile.
     profile_dir = PROFILES_DIR / "minecraft"
     profile_dir.mkdir(parents=True, exist_ok=True)
-    (profile_dir / "keybinds.json").write_text(json.dumps(DEFAULT_MINECRAFT_KEYBINDS, indent=2), encoding="utf-8")
-    (profile_dir / "ranges.json").write_text(json.dumps(DEFAULT_MINECRAFT_RANGES, indent=2), encoding="utf-8")
+    (profile_dir / "profile.json").write_text(json.dumps(DEFAULT_MINECRAFT_PROFILE, indent=2), encoding="utf-8")
     print(f"Created default profile at {profile_dir} - copy this folder to add more games.")
 
 
@@ -142,69 +120,58 @@ def _parse_devices_field(binding: dict) -> Optional[frozenset]:
 
 def _load_profile(profile_dir: Path) -> Profile:
     """
-    Load and validate one profile folder (keybinds.json + ranges.json) into
-    a Profile. Raises ValueError with a human-readable message for any
-    structural problem (missing files, bad mode, missing ranges entry, an
-    invalid range, etc.) - callers are expected to let this propagate rather
-    than silently skip a broken profile, so mistakes surface immediately
-    instead of causing quietly-wrong output later.
+    Load and validate one profile folder (profile.json) into a Profile.
+    Raises ValueError with a human-readable message for any structural
+    problem - callers are expected to let this propagate rather than silently
+    skip a broken profile, so mistakes surface immediately.
     """
-    keybinds_path = profile_dir / "keybinds.json"
-    ranges_path = profile_dir / "ranges.json"
-    if not keybinds_path.exists() or not ranges_path.exists():
-        raise ValueError("folder must contain both keybinds.json and ranges.json")
+    profile_path = profile_dir / "profile.json"
+    if not profile_path.exists():
+        raise ValueError("folder must contain profile.json")
 
-    keybinds = json.loads(keybinds_path.read_text(encoding="utf-8"))
-    ranges = json.loads(ranges_path.read_text(encoding="utf-8"))
+    data = json.loads(profile_path.read_text(encoding="utf-8"))
 
-    name = keybinds.get("name", profile_dir.name)
-    window_titles = [t for t in keybinds.get("window_titles", [])]
-    window_title_exact = bool(keybinds.get("window_title_exact", False))
+    name = data.get("name", profile_dir.name)
+    window_titles = [t for t in data.get("window_titles", [])]
+    window_title_exact = bool(data.get("window_title_exact", False))
     if not window_titles:
-        raise ValueError("keybinds.json needs at least one entry in window_titles")
+        raise ValueError("profile.json needs at least one entry in window_titles")
 
-    priority = keybinds.get("priority", [])
+    priority = data.get("priority", [])
+
+    if "background_vibe" not in data:
+        raise ValueError("profile.json needs a 'background_vibe' field")
+    background = VibeRange(*data["background_vibe"])
 
     seen_ids = set()
-    parsed_bindings = []  # every binding, in file order, disabled ones included - used for the banner/GUI display
+    parsed_bindings = []  # every binding, in file order, for the banner/GUI display
     bindings_by_key = {}  # key/button token -> Binding, all enabled bindings for event-driven dispatch
 
-    # Single pass: validate shape, look up ranges.json, build the runtime
-    # lookup dict. mode/duration are read from the JSON and stored for
-    # display (banner, GUI) but are not used by the engine - all bindings
-    # now fire on press and stop on release.
-    for binding in keybinds.get("bindings", []):
+    for binding in data.get("bindings", []):
         bid = binding["id"]
         if bid in seen_ids:
             raise ValueError(f"duplicate binding id '{bid}'")
         seen_ids.add(bid)
 
-        mode = binding.get("mode")  # kept for backward compat / display only
-
         keys = [k.lower() for k in binding.get("keys", [])]
         if not keys:
             raise ValueError(f"binding '{bid}' has no keys")
 
+        if "vibe" not in binding:
+            raise ValueError(f"binding '{bid}' has no 'vibe' field")
+        vibe = VibeRange(*binding["vibe"])
+
         enabled = binding.get("enabled", True)
         target_devices = _parse_devices_field(binding)
-
-        range_section = ranges.get(bid)
-        if range_section is None:
-            raise ValueError(f"binding '{bid}' has no matching entry in ranges.json")
-        vibe = VibeRange(*range_section["vibe"])
-
-        # duration is read and preserved for display (banner / legacy profiles)
-        # but the engine no longer uses it - every binding holds until release.
-        duration = DurationRange(*range_section["duration"]) if "duration" in range_section else None
 
         parsed_bindings.append(
             {
                 "id": bid,
                 "keys": keys,
-                "mode": mode,
+                "mode": None,
                 "enabled": enabled,
                 "vibe": vibe,
-                "duration": duration,
+                "duration": None,
                 "devices": target_devices,
             }
         )
@@ -215,11 +182,6 @@ def _load_profile(profile_dir: Path) -> Profile:
         for k in keys:
             bindings_by_key[k] = b
 
-    background_section = ranges.get("background")
-    if background_section is None or "vibe" not in background_section:
-        raise ValueError("ranges.json needs a 'background' entry with a 'vibe' range")
-    background = VibeRange(*background_section["vibe"])
-
     return Profile(
         id=profile_dir.name,
         name=name,
@@ -229,8 +191,8 @@ def _load_profile(profile_dir: Path) -> Profile:
         background=background,
         bindings=parsed_bindings,
         priority=priority,
-        steamgriddb_id=keybinds.get("steamgriddb_id"),
-        steamgriddb_grid_id=keybinds.get("steamgriddb_grid_id"),
+        steamgriddb_id=data.get("steamgriddb_id"),
+        steamgriddb_grid_id=data.get("steamgriddb_grid_id"),
     )
 
 
@@ -259,11 +221,9 @@ def load_profiles() -> dict:
     for entry in sorted(PROFILES_DIR.iterdir()):
         if not entry.is_dir():
             continue
-        # Folders with neither file (e.g. profiles/assets/, holding the
+        # Folders without profile.json (e.g. profiles/assets/, holding the
         # submodule's own README images) aren't profiles at all - skip them.
-        # A folder with only one of the two files is a genuinely broken
-        # profile and should still fail loudly below.
-        if not (entry / "keybinds.json").exists() and not (entry / "ranges.json").exists():
+        if not (entry / "profile.json").exists():
             continue
         try:
             profile = _load_profile(entry)

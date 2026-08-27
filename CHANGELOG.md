@@ -5,6 +5,24 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.7.0]
+
+### Changed
+- **Single profile file** - each game profile is now stored as a single
+  `profile.json` that combines the old `keybinds.json` + `ranges.json`. The
+  `vibe` range is inline on each binding entry rather than in a separate file.
+  `background_vibe` replaces the top-level `background.vibe` key from
+  `ranges.json`. All existing profiles have been migrated.
+- **GUI save/new/steamgriddb** operations now read and write `profile.json`
+  instead of the two-file format.
+- **`DEFAULT_MINECRAFT_PROFILE`** replaces the removed
+  `DEFAULT_MINECRAFT_KEYBINDS` / `DEFAULT_MINECRAFT_RANGES` exports.
+
+### Breaking changes
+- Profiles with only `keybinds.json` / `ranges.json` will no longer be loaded.
+  Migrate by merging them into a single `profile.json` (see the profiles
+  submodule for the canonical format).
+
 ## [3.6.0]
 
 ### Changed
