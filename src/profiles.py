@@ -25,7 +25,7 @@ from typing import Optional
 from src.paths import PROFILES_DIR
 from src.ranges import VibeRange
 
-TIGHC_PROFILES_REPO = "TIGHC/TIGHC-Profiles"
+TIGHC_PROFILES_REPO = "TIGHC/Profiles"
 TIGHC_PROFILES_RAW_BASE = f"https://raw.githubusercontent.com/{TIGHC_PROFILES_REPO}/main"
 TIGHC_PROFILES_API_BASE = f"https://api.github.com/repos/{TIGHC_PROFILES_REPO}/contents"
 TIGHC_PROFILES_URL = f"https://github.com/{TIGHC_PROFILES_REPO}"

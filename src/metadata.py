@@ -6,7 +6,7 @@ See src/version.py for the version number itself.
 
 PROJECT_NAME = "The Intiface Game Haptics Controller"
 PROJECT_SHORT_NAME = "TIGHC"
-REPO_URL = "https://github.com/TIGHC/TIGHC"
+REPO_URL = "https://github.com/TIGHC/Engine"
 WEBSITE_URL = "https://tighc.stuxie.dev"
 AUTHOR_NAME = "StuxieDev"
 AUTHOR_URL = "https://github.com/StuxieDev"
