@@ -79,7 +79,7 @@ Clone the repo **with its submodule** (`profiles/` is a separate git
 repository - see the main README's Quick start for why):
 
 ```
-git clone --recurse-submodules https://github.com/StuxieDev/TIGHC.git
+git clone --recurse-submodules https://github.com/TIGHC/TIGHC.git
 cd TIGHC
 ```
 

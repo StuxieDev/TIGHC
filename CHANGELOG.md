@@ -101,7 +101,7 @@ feature additions, PATCH marks fixes.
 ### Changed
 - **Profiles fetched from GitHub** — bundled profiles are no longer stored in
   this repo at all. On first launch (empty user profiles dir), TIGHC downloads
-  all profiles from the [TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles)
+  all profiles from the [TIGHC-Profiles](https://github.com/TIGHC/TIGHC-Profiles)
   GitHub repo. If offline, the built-in Minecraft profile is used as a fallback.
 - **"Update profiles from GitHub"** button in the Profiles tab downloads any
   profiles from TIGHC-Profiles not yet in your local profiles dir (existing

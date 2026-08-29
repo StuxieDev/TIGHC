@@ -16,7 +16,7 @@ driven from an interactive GUI. As much as I hate to say it this was made
 with grok, chat gpt, and some claude. (I wish I was better at coding)
 
 Website: https://tighc.stuxie.dev  
-Repository: https://github.com/StuxieDev/TIGHC
+Repository: https://github.com/TIGHC/TIGHC
 
 ## Author
 
@@ -30,7 +30,7 @@ Repository: https://github.com/StuxieDev/TIGHC
 ## Quick start
 
 ```
-git clone https://github.com/StuxieDev/TIGHC.git
+git clone https://github.com/TIGHC/TIGHC.git
 python gui.py
 ```
 
@@ -99,7 +99,7 @@ same files.
 
 Your profiles live in `%APPDATA%\TIGHC\profiles\` (or `~/.local/share/TIGHC/profiles/`
 on Linux). On first launch, TIGHC downloads all profiles from
-[TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles) on GitHub and
+[TIGHC-Profiles](https://github.com/TIGHC/TIGHC-Profiles) on GitHub and
 seeds them there. Profiles you edit are never overwritten automatically.
 
 Each profile is a folder containing a single `profile.json` with the game's
@@ -110,7 +110,7 @@ so you can alt-tab between games and it just follows along.
 The easiest way to add a new profile is the GUI's "New profile..." button.
 Use "Update profiles from GitHub" in the Profiles tab to pick up any new
 profiles added to the TIGHC-Profiles repo. Want to share a profile you've
-made? Open a pull request on [TIGHC-Profiles](https://github.com/StuxieDev/TIGHC-Profiles).
+made? Open a pull request on [TIGHC-Profiles](https://github.com/TIGHC/TIGHC-Profiles).
 
 Each binding in `profile.json` has:
 
@@ -241,4 +241,4 @@ the versioning scheme, the changelog, and a link to the repository. This
 project follows [Semantic Versioning](https://semver.org/)
 (`MAJOR.MINOR.PATCH`) - see [CHANGELOG.md](CHANGELOG.md) for what changed in
 each release. Questions, issues, or contributions:
-https://github.com/StuxieDev/TIGHC
+https://github.com/TIGHC/TIGHC
