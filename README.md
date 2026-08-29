@@ -67,7 +67,7 @@ src/
   engine.py                       # HapticsController - the engine itself
   haptics.py                      # configs/haptics.json load/apply + derived settings
   steamgriddb.py                  # SteamGridDB cover-art fetching/caching
-  profiles.py                     # profiles/<id>/{keybinds,ranges}.json loading
+  profiles.py                     # profiles/<id>/profile.json loading
   devices.py                      # configs/devices.json registry + per-channel state
   input.py                        # keyboard/mouse normalization, focused-window lookup
   ranges.py                       # VibeRange/DurationRange/PulseSpec
@@ -86,8 +86,7 @@ assets/                           # icon.png/icon.ico (window icon) and logo.png
     steamgriddb_cache.json        # resolved game ids / chosen art per profile
   artwork_cache/                  # downloaded cover-art images
   <your-other-game>/
-    keybinds.json
-    ranges.json
+    profile.json
 ```
 
 `configs/` and its contents, along with `artwork_cache/`, are created
