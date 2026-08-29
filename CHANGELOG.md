@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.12]
+
+### Changed
+- **`version.txt` renamed to `VERSION.md`** — same single source of truth,
+  read by `src/version.py`; only the filename changed.
+
 ## [3.9.11]
 
 ### Fixed
