@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" width="500" alt="The Intiface Game Haptics Controller (TIGHC)">
+</p>
+
 # Linux / Steam Deck Guide
 
 TIGHC's primary target is Windows, but the engine also runs on Linux -
