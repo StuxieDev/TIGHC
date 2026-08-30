@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.13]
+
+### Added
+- **`CONTRIBUTING.md`** — setup, manual verification steps (no automated
+  test suite), and the versioning convention for PRs.
+
 ## [3.9.12]
 
 ### Changed
