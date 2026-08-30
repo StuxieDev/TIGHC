@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.14]
+
+### Added
+- **`commit.bat`/`commit.sh`** — pre-written commit+tag scripts, rewritten
+  with each commit's exact message/tag before being run.
+
 ## [3.9.13]
 
 ### Added
