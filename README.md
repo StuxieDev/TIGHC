@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" width="500" alt="The Intiface Game Haptics Controller (TIGHC)">
+</p>
+
 # The Intiface Game Haptics Controller (TIGHC)
 
 > **18+ only.** This software connects to and controls adult haptic/sex toy
@@ -6,8 +10,6 @@
 > require you to confirm this before they'll start.
 
 **Version 3.9.14** — see [CHANGELOG.md](CHANGELOG.md) for release history.
-
-![TIGHC](assets/logo.png)
 
 A haptic controller that links your keyboard/mouse input to a Buttplug/Intiface
 toy. Originally Minecraft-only, it now supports multiple game **profiles**,
