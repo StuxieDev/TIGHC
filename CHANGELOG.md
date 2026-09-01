@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.16]
+
+### Added
+- **Terms and Ethics disclaimer** — the age gate (`gui.py` and `cli.py`)
+  and the About tab now state that continuing/using the software means
+  agreeing to the [Terms and Ethics of Use](https://tighc.stuxie.dev/legal/terms),
+  with a clickable link in the GUI.
+
 ## [3.9.15]
 
 ### Fixed

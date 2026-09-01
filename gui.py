@@ -2174,7 +2174,16 @@ class App:
             body,
             text="Intended for use only by adults aged 18 or older.",
             font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=(0, 10))
+        ).pack(anchor="w", pady=(0, 4))
+
+        about_terms_url = WEBSITE_URL + "/legal/terms"
+        about_terms_row = ttk.Frame(body)
+        about_terms_row.pack(anchor="w", pady=(0, 10))
+        ttk.Label(about_terms_row, text="By using this software, you agree to the ").pack(side="left")
+        about_terms_link = ttk.Label(about_terms_row, text="Terms and Ethics of Use", foreground=ACCENT_COLOR, cursor="hand2")
+        about_terms_link.pack(side="left")
+        about_terms_link.bind("<Button-1>", lambda _e: webbrowser.open(about_terms_url))
+        ttk.Label(about_terms_row, text=".").pack(side="left")
 
         ttk.Label(
             body,
@@ -2441,7 +2450,19 @@ def _show_age_gate(root) -> bool:
             "It is intended for use only by adults aged 18 or older."
         ),
         justify="center",
-    ).pack(pady=(0, 16))
+    ).pack(pady=(0, 10))
+
+    terms_url = WEBSITE_URL + "/legal/terms"
+    terms_row = ttk.Frame(body)
+    terms_row.pack(pady=(0, 16))
+    ttk.Label(terms_row, text="By continuing, you agree to the ").pack(side="left")
+    # Same fake-hyperlink pattern as the About tab: ttk.Label has no built-in
+    # hyperlink widget, so this is a colored, hand-cursor label that opens
+    # the URL in the OS browser.
+    terms_link = ttk.Label(terms_row, text="Terms and Ethics of Use", foreground=ACCENT_COLOR, cursor="hand2")
+    terms_link.pack(side="left")
+    terms_link.bind("<Button-1>", lambda _e: webbrowser.open(terms_url))
+    ttk.Label(terms_row, text=".").pack(side="left")
 
     btns = ttk.Frame(body)
     btns.pack()

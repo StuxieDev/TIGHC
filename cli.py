@@ -11,7 +11,7 @@ Prefer an interactive configurator? Use `python gui.py` instead.
 
 import asyncio
 
-from src.tighc import AUTHOR_NAME, HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, __version__, load_haptics_config, save_age_confirmation
+from src.tighc import AUTHOR_NAME, HapticsController, INTIFACE_WS, PROFILES, PROJECT_NAME, PROJECT_SHORT_NAME, WEBSITE_URL, __version__, load_haptics_config, save_age_confirmation
 
 
 def _confirm_age() -> bool:
@@ -20,6 +20,7 @@ def _confirm_age() -> bool:
     print("This software connects to and controls adult haptic/sex toy devices based on")
     print("your keyboard and mouse input while gaming. Intended for use only by adults")
     print("aged 18 or older.")
+    print(f"By continuing, you agree to the Terms and Ethics of Use: {WEBSITE_URL}/legal/terms")
     try:
         answer = input("Type 'yes' to confirm you are 18 or older and continue: ").strip().lower()
     except EOFError:
