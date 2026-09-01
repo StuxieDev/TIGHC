@@ -5,6 +5,13 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.17]
+
+### Fixed
+- **Mojibake in `commit.sh`/`commit.bat` console output** — an em dash in
+  the log/echo messages rendered as garbled bytes (e.g. `ÔÇö`) on the
+  default Windows console codepage. Replaced with plain ASCII dashes.
+
 ## [3.9.16]
 
 ### Added
