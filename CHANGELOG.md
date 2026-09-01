@@ -5,6 +5,15 @@ All notable changes to this project are documented here. Versioning follows
 mark breaking config-format/behavior changes, MINOR marks backward-compatible
 feature additions, PATCH marks fixes.
 
+## [3.9.15]
+
+### Fixed
+- **`commit.sh`/`commit.bat` staleness** — they hardcoded the version and
+  commit message per release, so a forgotten update would tag the wrong
+  version or skip tagging entirely. Both now read the version from
+  `VERSION.md` dynamically, skip committing if nothing's staged, and skip
+  tagging if the tag already exists.
+
 ## [3.9.14]
 
 ### Added
